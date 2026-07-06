@@ -107,6 +107,18 @@ $message = app(Driver::class)
     ->send();
 ```
 
+The builder also carries per-message options — each just overrides config for that one send:
+
+```php
+sms('textup')
+    ->to('+998901234567')
+    ->text('Your code is 1234')
+    ->otp()                     // is_otp = true (isOtp() alias)
+    ->from('MyBrand')           // sender / nickname override (nickname() alias)
+    ->as(['email' => $tenant->email, 'password' => $tenant->pw])  // runtime credentials (usingCredentials() alias)
+    ->send();
+```
+
 ### Direct
 
 ```php
@@ -269,6 +281,31 @@ The same mechanism sets any per-message option. TextUp's `isOtp`, for example, i
 sms('textup', ['is_otp' => true])->send($phone, 'Your code is 1234');  // this message only
 sms('textup')->send($phone, $text);                                    // normal
 ```
+
+## Fallback provider
+
+For a single send, name a secondary provider to try when the primary fails:
+
+```php
+$message = sms('eskiz')
+    ->to('+998901234567')
+    ->text('Your code is 4821')
+    ->useFallback('playmobile')
+    ->send();
+```
+
+The primary sends once. If it returns an unsuccessful `SentMessage`, the fallback sends once and its result is returned. A successful primary never contacts the fallback. Pass a predicate to decide for yourself:
+
+```php
+->useFallback('playmobile', fn (SentMessage $sent) => $sent->status === DeliveryStatus::Failed)
+```
+
+Notes:
+- **Single sends only** — `sendMany()` has no fallback.
+- **One secondary** — the fallback is not itself retried.
+- **Each attempt is real:** a failed primary and a successful fallback each fire `SmsSent` and (with the database log on) write their own `sms_logs` row — an honest record of "eskiz failed, playmobile delivered."
+- Fluent overrides (`otp()`, `from()`, `as()`) apply to the **primary only**; the fallback uses its own config.
+- An unknown or disabled fallback driver throws the usual resolution exception, but only if the fallback is actually triggered.
 
 ## Enabling and disabling providers
 
