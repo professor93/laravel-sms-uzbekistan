@@ -65,8 +65,7 @@ PLAYMOBILE_WEBHOOK_SECRET=       # random string; part of the callback URL
 TEXTUP_ENABLED=true
 TEXTUP_EMAIL=account@example.com
 TEXTUP_PASSWORD=secret
-TEXTUP_USER_ID=                  # account owner UUID from the login response
-TEXTUP_TEMPLATE_ID=              # UUID of an approved template; message must match it
+TEXTUP_USER_ID=                  # optional; auto-captured from login and cached if left empty
 TEXTUP_NICKNAME_ID=              # optional; empty = the short number
 TEXTUP_TOKEN_TTL=86400
 TEXTUP_IS_OTP=false
@@ -81,7 +80,7 @@ SAYQAL_NICKNAME=
 
 Every provider supports the same `*_ALLOWED_PREFIXES` / `*_BLOCKED_PREFIXES` pair (`PLAYMOBILE_...`, `TEXTUP_...`, `SAYQAL_...`) — see [Restricting recipients by prefix](#restricting-recipients-by-prefix).
 
-> **TextUp requires an approved template.** Every `/send` must reference `TEXTUP_TEMPLATE_ID` (a template UUID from your TextUp cabinet), and the message text must match that template. Sends without a matching approved template are rejected by TextUp before delivery. Create/approve the template in the cabinet, then copy its id here.
+> **TextUp validates against approved templates.** The message text must exactly match one of your account's approved templates (placeholders filled per the template's pattern, trailing newline included). Text that matches no approved template is rejected by TextUp before delivery. Get your templates approved in the TextUp cabinet first.
 
 Each driver block in `config/sms.php` also accepts `http_options` — raw Guzzle options passed to every request. Uzbek providers usually require a whitelisted static IP, so a proxy is a first-class concern:
 
@@ -246,6 +245,30 @@ $factory->make('playmobile')->send($phone, $otp);  // transactional route
 ```
 
 Or reach for the per-driver facades — `EskizSms::send($phone, $text)` is the same instance behind a static face.
+
+## Runtime credentials
+
+Pass credentials (or any config keys) at resolution time to send from a different account than `config/sms.php` — useful for multi-tenant apps where each tenant has its own provider login:
+
+```php
+use Uzbek\Sms\DriverFactory;
+
+app(DriverFactory::class)
+    ->make('eskiz', ['email' => $tenant->eskiz_email, 'password' => $tenant->eskiz_password])
+    ->send($phone, $text);
+
+// or via the helper
+sms('eskiz', ['email' => $tenant->eskiz_email, 'password' => $tenant->eskiz_password])->send($phone, $text);
+```
+
+Overrides are merged over the driver's config block. For token drivers (Eskiz, TextUp) each distinct credential set gets its **own cached token**, keyed by a hash of the credentials — so tenants never share or clobber each other's tokens, and the single-flight refresh still applies per account. Overriding a non-credential key (below) reuses the configured account's token, so it costs no extra login.
+
+The same mechanism sets any per-message option. TextUp's `isOtp`, for example, is per send:
+
+```php
+sms('textup', ['is_otp' => true])->send($phone, 'Your code is 1234');  // this message only
+sms('textup')->send($phone, $text);                                    // normal
+```
 
 ## Enabling and disabling providers
 

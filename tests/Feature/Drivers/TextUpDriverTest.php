@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Sms\Contracts\ChecksDeliveryStatus;
@@ -38,33 +39,78 @@ it('sends a single sms with E.164 phone and required userId', function () {
 
         return $request['recipients'] === ['+998900010001']
             && $request['userId'] === 'user-uuid-1'
-            && $request['templateId'] === 'tpl-uuid-1'
             && $request['message'] === 'Salom'
             && $request->header('Authorization')[0] === 'Bearer jwt-1';
     });
 });
 
-it('includes the templateId on bulk sends too', function () {
+it('captures userId from the login response and uses it when none is configured', function () {
+    config()->set('sms.drivers.textup.user_id', null);
+
     Http::fake([
-        'api-auth.textup.uz/v1/login' => Http::response(['accessToken' => 'jwt-1']),
-        'sms-api.textup.uz/v1/send' => Http::response(['smsId' => 'job-1']),
+        'api-auth.textup.uz/v1/login' => Http::response([
+            'accessToken' => 'jwt-1',
+            'user' => ['id' => 'captured-uuid-9'],
+        ]),
+        'sms-api.textup.uz/v1/send' => Http::response(['smsId' => 'sms-1']),
     ]);
 
-    textup()->sendMany(OutboundMessage::sameText(['+998901111111', '+998902222222'], 'Salom'));
+    textup()->send('+998901234567', 'Salom');
+
+    expect(Cache::get('sms:textup:token:user'))->toBe('captured-uuid-9');
 
     Http::assertSent(function (Request $request): bool {
         if (! str_contains($request->url(), 'sms-api.textup.uz')) {
             return true;
         }
 
-        return $request['templateId'] === 'tpl-uuid-1'
-            && count($request['recipients']) === 2;
+        return $request['userId'] === 'captured-uuid-9';
     });
 });
 
-it('omits templateId when none is configured', function () {
-    config()->set('sms.drivers.textup.template_id', null);
+it('prefers a configured userId over the captured one', function () {
+    config()->set('sms.drivers.textup.user_id', 'configured-uuid');
 
+    Http::fake([
+        'api-auth.textup.uz/v1/login' => Http::response([
+            'accessToken' => 'jwt-1',
+            'user' => ['id' => 'captured-uuid-9'],
+        ]),
+        'sms-api.textup.uz/v1/send' => Http::response(['smsId' => 'sms-1']),
+    ]);
+
+    textup()->send('+998901234567', 'Salom');
+
+    Http::assertSent(function (Request $request): bool {
+        if (! str_contains($request->url(), 'sms-api.textup.uz')) {
+            return true;
+        }
+
+        return $request['userId'] === 'configured-uuid';
+    });
+});
+
+it('sets isOtp per send via a runtime override without rotating the token', function () {
+    Http::fake([
+        'api-auth.textup.uz/v1/login' => Http::response(['accessToken' => 'jwt-1', 'user' => ['id' => 'u1']]),
+        'sms-api.textup.uz/v1/send' => Http::response(['smsId' => 'sms-1']),
+    ]);
+
+    sms('textup', ['is_otp' => true])->send('+998901234567', 'code 1234');
+
+    Http::assertSent(function (Request $request): bool {
+        if (! str_contains($request->url(), 'sms-api.textup.uz')) {
+            return true;
+        }
+
+        return $request['isOtp'] === true;
+    });
+
+    // A non-credential override reuses the configured account's token key.
+    expect(Cache::get('sms:textup:token'))->toBe('jwt-1');
+});
+
+it('omits isOtp by default', function () {
     Http::fake([
         'api-auth.textup.uz/v1/login' => Http::response(['accessToken' => 'jwt-1']),
         'sms-api.textup.uz/v1/send' => Http::response(['smsId' => 'sms-1']),
@@ -77,7 +123,7 @@ it('omits templateId when none is configured', function () {
             return true;
         }
 
-        return ! array_key_exists('templateId', (array) $request->data());
+        return ! array_key_exists('isOtp', (array) $request->data());
     });
 });
 

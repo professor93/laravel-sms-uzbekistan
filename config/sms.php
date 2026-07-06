@@ -62,8 +62,8 @@ return [
             'auth_url' => env('TEXTUP_AUTH_URL', 'https://api-auth.textup.uz/v1'),
             'email' => env('TEXTUP_EMAIL'),
             'password' => env('TEXTUP_PASSWORD'),
+            // Optional: captured from the login response and cached if left empty.
             'user_id' => env('TEXTUP_USER_ID'),
-            'template_id' => env('TEXTUP_TEMPLATE_ID'),
             'from' => env('TEXTUP_NICKNAME_ID'),
             'token_ttl' => (int) env('TEXTUP_TOKEN_TTL', 86400),
             'is_otp' => (bool) env('TEXTUP_IS_OTP', false),

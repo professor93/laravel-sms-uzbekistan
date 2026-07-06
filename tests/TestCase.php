@@ -59,7 +59,6 @@ abstract class TestCase extends Orchestra
                     'email' => 'sender@example.test',
                     'password' => 'textup-password',
                     'user_id' => 'user-uuid-1',
-                    'template_id' => 'tpl-uuid-1',
                     'from' => null,
                     'token_ttl' => 3600,
                     'is_otp' => false,

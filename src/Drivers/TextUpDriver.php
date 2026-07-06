@@ -30,21 +30,33 @@ final class TextUpDriver extends AbstractDriver implements ChecksDeliveryStatus
         CacheRepository $cache,
         HttpFactory $http,
     ): Authenticator {
+        $ttl = (int) ($config['token_ttl'] ?? self::DEFAULT_TOKEN_TTL);
+
         // Login lives on a separate host, hence the absolute URL.
         return new LoginTokenAuthenticator(
             cache: $cache,
             cacheKey: (string) $config['cache_key'],
-            login: fn (): string => (string) $http
-                ->asJson()
-                ->acceptJson()
-                ->withOptions($config['http_options'] ?? [])
-                ->post(rtrim((string) $config['auth_url'], '/').'/login', [
-                    'email' => $config['email'],
-                    'password' => $config['password'],
-                ])
-                ->throw()
-                ->json('accessToken'),
-            ttl: (int) ($config['token_ttl'] ?? self::DEFAULT_TOKEN_TTL),
+            login: function () use ($config, $cache, $http, $ttl): string {
+                $response = $http
+                    ->asJson()
+                    ->acceptJson()
+                    ->withOptions($config['http_options'] ?? [])
+                    ->post(rtrim((string) $config['auth_url'], '/').'/login', [
+                        'email' => $config['email'],
+                        'password' => $config['password'],
+                    ])
+                    ->throw();
+
+                // userId is required in send payloads; cache it beside the token.
+                $userId = $response->json('user.id');
+
+                if ($userId !== null) {
+                    $cache->put($config['cache_key'].':user', (string) $userId, $ttl);
+                }
+
+                return (string) $response->json('accessToken');
+            },
+            ttl: $ttl,
         );
     }
 
@@ -123,14 +135,25 @@ final class TextUpDriver extends AbstractDriver implements ChecksDeliveryStatus
     {
         return array_filter([
             'message' => $text,
-            // TODO: auto-capture userId from the login response
-            'userId' => (string) $this->config['user_id'],
-            // Required by TextUp: message must match this approved template.
-            'templateId' => $this->config['template_id'] ?? null,
+            'userId' => $this->userId(),
             'recipients' => $recipients,
             'nicknameId' => $this->config['from'] ?? null,
             'isOtp' => ($this->config['is_otp'] ?? false) ? true : null,
         ], fn (mixed $value): bool => $value !== null);
+    }
+
+    private function userId(): ?string
+    {
+        $configured = (string) ($this->config['user_id'] ?? '');
+
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        // Otherwise use the id captured at login; null omits it rather than sending "".
+        $captured = $this->cache->get($this->config['cache_key'].':user');
+
+        return is_string($captured) && $captured !== '' ? $captured : null;
     }
 
     private function normalizePhone(string $phone): string

@@ -6,10 +6,17 @@ use Uzbek\Sms\Contracts\Driver;
 use Uzbek\Sms\DriverFactory;
 
 if (! function_exists('sms')) {
-    function sms(?string $driver = null): Driver
+    /**
+     * @param  array<string, mixed>  $config  runtime overrides (e.g. custom email/password)
+     */
+    function sms(?string $driver = null, array $config = []): Driver
     {
         $factory = app(DriverFactory::class);
 
-        return $driver === null ? $factory->default() : $factory->make($driver);
+        if ($driver === null && $config === []) {
+            return $factory->default();
+        }
+
+        return $factory->make($driver ?? (string) config('sms.default'), $config);
     }
 }

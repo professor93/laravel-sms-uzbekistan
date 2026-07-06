@@ -28,6 +28,7 @@ abstract class AbstractDriver implements Driver
         protected readonly Authenticator $auth,
         protected readonly HttpFactory $http,
         protected readonly array $config,
+        protected readonly CacheRepository $cache,
     ) {}
 
     final public function send(string $phone, string $text): SentMessage
