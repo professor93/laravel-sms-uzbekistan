@@ -12,7 +12,7 @@ use Uzbek\Sms\Events\SmsSent;
 use Uzbek\Sms\Models\SmsLog;
 
 it('rejects a blocked prefix without contacting the provider', function () {
-    config()->set('sms.drivers.eskiz.prefixes', ['blocked' => ['99897']]);
+    config()->set('sms.providers.eskiz.prefixes', ['blocked' => ['99897']]);
 
     Http::fake();
 
@@ -26,7 +26,7 @@ it('rejects a blocked prefix without contacting the provider', function () {
 });
 
 it('rejects numbers outside the allowed list', function () {
-    config()->set('sms.drivers.eskiz.prefixes', ['allowed' => ['99890', '99891']]);
+    config()->set('sms.providers.eskiz.prefixes', ['allowed' => ['99890', '99891']]);
 
     Http::fake();
 
@@ -39,7 +39,7 @@ it('rejects numbers outside the allowed list', function () {
 });
 
 it('sends numbers matching an allowed prefix', function () {
-    config()->set('sms.drivers.eskiz.prefixes', ['allowed' => ['99890']]);
+    config()->set('sms.providers.eskiz.prefixes', ['allowed' => ['99890']]);
 
     Http::fake([
         'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
@@ -52,7 +52,7 @@ it('sends numbers matching an allowed prefix', function () {
 });
 
 it('applies rules per driver — another driver stays open', function () {
-    config()->set('sms.drivers.eskiz.prefixes', ['blocked' => ['99897']]);
+    config()->set('sms.providers.eskiz.prefixes', ['blocked' => ['99897']]);
 
     Http::fake(['routee.sayqal.uz/sms/TransmitSMS' => Http::response(['transactionid' => 1])]);
 
@@ -62,7 +62,7 @@ it('applies rules per driver — another driver stays open', function () {
 });
 
 it('skips blocked recipients in a native bulk without aborting the rest', function () {
-    config()->set('sms.drivers.playmobile.prefixes', ['blocked' => ['99897']]);
+    config()->set('sms.providers.playmobile.prefixes', ['blocked' => ['99897']]);
 
     Event::fake([SmsSent::class]);
 
@@ -90,7 +90,7 @@ it('skips blocked recipients in a native bulk without aborting the rest', functi
 });
 
 it('makes no request when every recipient is blocked', function () {
-    config()->set('sms.drivers.eskiz.prefixes', ['blocked' => ['998']]);
+    config()->set('sms.providers.eskiz.prefixes', ['blocked' => ['998']]);
 
     Event::fake([SmsSent::class]);
 
@@ -109,7 +109,7 @@ it('makes no request when every recipient is blocked', function () {
 });
 
 it('applies prefix rules in the loop fallback', function () {
-    config()->set('sms.drivers.sayqal.prefixes', ['blocked' => ['99897']]);
+    config()->set('sms.providers.sayqal.prefixes', ['blocked' => ['99897']]);
 
     Http::fake(['routee.sayqal.uz/sms/TransmitSMS' => Http::response(['transactionid' => 1])]);
 
@@ -125,7 +125,7 @@ it('applies prefix rules in the loop fallback', function () {
 });
 
 it('persists the blocked attempt as a failed row', function () {
-    config()->set('sms.drivers.eskiz.prefixes', ['blocked' => ['99897']]);
+    config()->set('sms.providers.eskiz.prefixes', ['blocked' => ['99897']]);
 
     Http::fake();
 
@@ -138,7 +138,7 @@ it('persists the blocked attempt as a failed row', function () {
 });
 
 it('normalizes prefixes and phones before matching', function () {
-    config()->set('sms.drivers.eskiz.prefixes', ['blocked' => ['+998 97']]);
+    config()->set('sms.providers.eskiz.prefixes', ['blocked' => ['+998 97']]);
 
     Http::fake();
 

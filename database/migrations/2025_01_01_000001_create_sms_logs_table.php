@@ -12,7 +12,7 @@ return new class extends Migration
     {
         Schema::create('sms_logs', function (Blueprint $table): void {
             $table->id();
-            $table->string('driver')->index();
+            $table->string('provider')->index();
             $table->string('provider_message_id')->nullable();
             $table->string('phone');
             $table->text('text');
@@ -22,7 +22,7 @@ return new class extends Migration
             $table->timestamps();
 
             // Webhooks match the original message through this pair.
-            $table->unique(['driver', 'provider_message_id']);
+            $table->unique(['provider', 'provider_message_id']);
         });
     }
 

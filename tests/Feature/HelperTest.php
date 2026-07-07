@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Http;
 use Uzbek\Sms\DriverFactory;
 use Uzbek\Sms\Drivers\EskizDriver;
 use Uzbek\Sms\Drivers\SayqalDriver;
-use Uzbek\Sms\Exceptions\UnknownDriverException;
+use Uzbek\Sms\Exceptions\UnknownProviderException;
 
 it('resolves the default driver without arguments', function () {
     expect(sms())->toBeInstanceOf(EskizDriver::class)
@@ -31,4 +31,4 @@ it('sends through the helper', function () {
 
 it('throws for an unknown driver name', function () {
     sms('nexmo');
-})->throws(UnknownDriverException::class);
+})->throws(UnknownProviderException::class);

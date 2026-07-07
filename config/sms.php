@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 return [
 
-    'default' => env('SMS_DRIVER', 'eskiz'),
+    'default' => env('SMS_PROVIDER', 'eskiz'),
+
+    'silent' => (bool) env('SMS_SILENT', false),
 
     'webhook' => [
         'enabled' => (bool) env('SMS_WEBHOOK_ENABLED', false),
@@ -23,9 +25,10 @@ return [
         'prefix' => env('SMS_CACHE_PREFIX', 'sms'),
     ],
 
-    'drivers' => [
+    'providers' => [
 
         'eskiz' => [
+            'driver' => 'eskiz',
             'enabled' => (bool) env('ESKIZ_ENABLED', true),
             'base_url' => env('ESKIZ_BASE_URL', 'https://notify.eskiz.uz/api'),
             'email' => env('ESKIZ_EMAIL'),
@@ -42,6 +45,7 @@ return [
         ],
 
         'playmobile' => [
+            'driver' => 'playmobile',
             'enabled' => (bool) env('PLAYMOBILE_ENABLED', true),
             'base_url' => env('PLAYMOBILE_BASE_URL', 'https://send.smsxabar.uz/broker-api'),
             'username' => env('PLAYMOBILE_USERNAME'),
@@ -57,6 +61,7 @@ return [
         ],
 
         'textup' => [
+            'driver' => 'textup',
             'enabled' => (bool) env('TEXTUP_ENABLED', true),
             'base_url' => env('TEXTUP_BASE_URL', 'https://sms-api.textup.uz/v1'),
             'auth_url' => env('TEXTUP_AUTH_URL', 'https://api-auth.textup.uz/v1'),
@@ -75,6 +80,7 @@ return [
         ],
 
         'sayqal' => [
+            'driver' => 'sayqal',
             'enabled' => (bool) env('SAYQAL_ENABLED', true),
             'base_url' => env('SAYQAL_BASE_URL', 'https://routee.sayqal.uz/sms'),
             'username' => env('SAYQAL_USERNAME'),

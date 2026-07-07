@@ -9,14 +9,14 @@ if (! function_exists('sms')) {
     /**
      * @param  array<string, mixed>  $config  runtime overrides (e.g. custom email/password)
      */
-    function sms(?string $driver = null, array $config = []): Driver
+    function sms(?string $provider = null, array $config = []): Driver
     {
         $factory = app(DriverFactory::class);
 
-        if ($driver === null && $config === []) {
+        if ($provider === null && $config === []) {
             return $factory->default();
         }
 
-        return $factory->make($driver ?? (string) config('sms.default'), $config);
+        return $factory->make($provider ?? (string) config('sms.default'), $config);
     }
 }

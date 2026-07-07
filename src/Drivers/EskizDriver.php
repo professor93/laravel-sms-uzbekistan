@@ -20,11 +20,6 @@ final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus
 {
     private const DEFAULT_TOKEN_TTL = 2592000;
 
-    public function name(): string
-    {
-        return 'eskiz';
-    }
-
     public static function resolveAuthenticator(
         array $config,
         CacheRepository $cache,
@@ -61,7 +56,7 @@ final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus
         $id = $response->json('id');
 
         return SentMessage::success(
-            driver: $this->name(),
+            provider: $this->name(),
             phone: $phone,
             text: $text,
             providerMessageId: $id !== null ? (string) $id : null,
@@ -111,7 +106,7 @@ final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus
         $raw = (array) $response->json();
 
         return $entries->map(fn (array $entry): SentMessage => SentMessage::success(
-            driver: $this->name(),
+            provider: $this->name(),
             phone: $entry['to'],
             text: $entry['text'],
             providerMessageId: $entry['user_sms_id'],

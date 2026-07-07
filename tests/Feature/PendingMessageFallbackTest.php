@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Events\SmsSent;
-use Uzbek\Sms\Exceptions\UnknownDriverException;
+use Uzbek\Sms\Exceptions\UnknownProviderException;
 
 it('applies otp() as an is_otp override on the outgoing request', function () {
     Http::fake([
@@ -55,7 +55,7 @@ it('falls back to the secondary provider when the primary fails', function () {
     $result = sms('eskiz')->to('+998 90 123 45 67')->text('Salom')->useFallback('playmobile')->send();
 
     expect($result->successful)->toBeTrue()
-        ->and($result->driver)->toBe('playmobile');
+        ->and($result->provider)->toBe('playmobile');
 
     Event::assertDispatchedTimes(SmsSent::class, 2);
 });
@@ -72,7 +72,7 @@ it('does not contact the fallback when the primary succeeds', function () {
     $result = sms('eskiz')->to('+998901234567')->text('Salom')->useFallback('playmobile')->send();
 
     expect($result->successful)->toBeTrue()
-        ->and($result->driver)->toBe('eskiz');
+        ->and($result->provider)->toBe('eskiz');
 
     Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), 'smsxabar.uz'));
     Event::assertDispatchedTimes(SmsSent::class, 1);
@@ -116,7 +116,7 @@ it('honors a predicate that forces fallback even when the primary succeeds', fun
         ->useFallback('playmobile', fn (SentMessage $sent): bool => true)
         ->send();
 
-    expect($result->driver)->toBe('playmobile');
+    expect($result->provider)->toBe('playmobile');
 });
 
 it('returns the fallback failed result when both providers fail', function () {
@@ -129,7 +129,7 @@ it('returns the fallback failed result when both providers fail', function () {
     $result = sms('eskiz')->to('+998901234567')->text('Salom')->useFallback('playmobile')->send();
 
     expect($result->successful)->toBeFalse()
-        ->and($result->driver)->toBe('playmobile');
+        ->and($result->provider)->toBe('playmobile');
 });
 
 it('does not leak primary overrides to the fallback', function () {
@@ -160,4 +160,4 @@ it('throws for an unknown fallback driver when the fallback is triggered', funct
     ]);
 
     sms('eskiz')->to('+998901234567')->text('Salom')->useFallback('nexmo')->send();
-})->throws(UnknownDriverException::class);
+})->throws(UnknownProviderException::class);

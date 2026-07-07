@@ -30,13 +30,33 @@ php artisan migrate
 
 ## Configuration
 
-Pick a default driver and configure the providers you use. Keep the published `config/sms.php` complete — Laravel merges package config at the top level only, so a hand-written partial file would drop the `webhook`/`logging`/`cache` sections entirely.
+Pick a default provider and configure the ones you use. Keep the published `config/sms.php` complete — Laravel merges package config at the top level only, so a hand-written partial file would drop the `webhook`/`logging`/`cache` sections entirely.
+
+Each entry under the `providers` array is a **named provider** — the identifier you pass to `sms()`, `DriverFactory::make()` and `useFallback()`, and the value stored in `sms_logs.provider`. Every provider block starts with a `driver` key naming the implementation that actually sends for it:
+
+```php
+// config/sms.php
+'providers' => [
+    'eskiz' => [
+        'driver' => 'eskiz',
+        // ...
+    ],
+    'playmobile' => [
+        'driver' => 'playmobile',
+        // ...
+    ],
+    'textup' => [/* ... */],
+    'sayqal' => [/* ... */],
+],
+```
+
+By default each provider is named after its driver, but that is just a convention, not a rule — see [Multiple accounts / named providers](#multiple-accounts--named-providers) below.
 
 Full `.env` reference:
 
 ```dotenv
 # Core
-SMS_DRIVER=eskiz                 # default driver: eskiz | playmobile | textup | sayqal
+SMS_PROVIDER=eskiz               # default provider: eskiz | playmobile | textup | sayqal
 SMS_WEBHOOK_ENABLED=false        # set true to receive delivery callbacks
 SMS_WEBHOOK_PATH=sms/webhooks    # webhook base path
 SMS_LOG_DATABASE=false           # set true to log every send to sms_logs
@@ -44,6 +64,7 @@ SMS_LOG_DEBUG=false              # write structured entries to the Laravel log
 SMS_LOG_CHANNEL=                 # Monolog channel for the debug log (empty = default)
 SMS_CACHE_STORE=                 # cache store for auth tokens (empty = app default)
 SMS_CACHE_PREFIX=sms             # prefix for all package cache keys
+SMS_SILENT=false                 # suppress the unsupported-bulk-fallback warning log
 
 # Eskiz — https://notify.eskiz.uz
 ESKIZ_ENABLED=true
@@ -82,17 +103,48 @@ Every provider supports the same `*_ALLOWED_PREFIXES` / `*_BLOCKED_PREFIXES` pai
 
 > **TextUp validates against approved templates.** The message text must exactly match one of your account's approved templates (placeholders filled per the template's pattern, trailing newline included). Text that matches no approved template is rejected by TextUp before delivery. Get your templates approved in the TextUp cabinet first.
 
-Each driver block in `config/sms.php` also accepts `http_options` — raw Guzzle options passed to every request. Uzbek providers usually require a whitelisted static IP, so a proxy is a first-class concern:
+Each provider block in `config/sms.php` also accepts `http_options` — raw Guzzle options passed to every request. Uzbek providers usually require a whitelisted static IP, so a proxy is a first-class concern:
 
 ```php
-'eskiz' => [
-    // ...
-    'http_options' => [
-        'proxy' => 'http://10.0.5.1:3128',
-        'timeout' => 10,
+'providers' => [
+    'eskiz' => [
+        // ...
+        'http_options' => [
+            'proxy' => 'http://10.0.5.1:3128',
+            'timeout' => 10,
+        ],
     ],
 ],
 ```
+
+### Multiple accounts / named providers
+
+Give two provider entries the same `driver` to run more than one account through the same implementation — useful when, say, marketing and transactional traffic should log in as different Eskiz accounts:
+
+```php
+// config/sms.php
+'providers' => [
+    'eskiz'     => ['driver' => 'eskiz', 'email' => env('ESKIZ_EMAIL'), /* ... */],
+    'marketing' => ['driver' => 'eskiz', 'email' => env('ESKIZ_MKTG_EMAIL'), /* ... */],
+],
+
+// usage
+sms('marketing')->to('+998901234567')->text('Salom')->send();
+```
+
+`sms(...)`, `->useFallback(...)`, the webhook URL segment (`/sms/webhooks/{provider}`), and the `sms_logs.provider` column all key off the **provider name** (`eskiz`, `marketing`) — not the `driver` they happen to share. Only the four built-in facades (`EskizSms`, `PlayMobileSms`, `TextUpSms`, `SayqalSms`) exist out of the box, so reach for `sms('marketing')` or `app('sms.provider.marketing')` for any extra named provider.
+
+### Custom driver
+
+A `driver` value can be a built-in name (`eskiz`, `playmobile`, `textup`, `sayqal`) or a fully-qualified class extending `Uzbek\Sms\Drivers\AbstractDriver` — no changes to the package itself required:
+
+```php
+'providers' => [
+    'inhouse' => ['driver' => \App\Sms\InHouseDriver::class, /* ... */],
+],
+```
+
+See [Adding a new driver](#adding-a-new-driver) for what the class needs to implement.
 
 ## Sending
 
@@ -128,11 +180,11 @@ $message = app(Driver::class)->send('+998901234567', 'Your code is 4821');
 ### The `sms()` helper
 
 ```php
-sms()->send('+998901234567', 'Your code is 4821');          // default driver
-sms('playmobile')->to('+998901234567')->text('Salom')->send(); // named driver
+sms()->send('+998901234567', 'Your code is 4821');            // default provider
+sms('playmobile')->to('+998901234567')->text('Salom')->send(); // named provider
 ```
 
-The helper is a thin wrapper over the factory — `sms()` is `DriverFactory::default()`, `sms('eskiz')` is `DriverFactory::make('eskiz')`, with the same fail-fast exceptions for unknown or disabled drivers.
+The helper is a thin wrapper over the factory — `sms()` is `DriverFactory::default()`, `sms('eskiz')` is `DriverFactory::make('eskiz')`, with the same fail-fast exceptions for unknown or disabled providers.
 
 ### Dependency injection
 
@@ -156,7 +208,7 @@ Phone formats are forgiving — each driver normalizes numbers to its provider's
 
 ### Facades
 
-Every provider has its own facade, plus `Sms` for the default driver. Each one proxies the exact same singleton the factory returns, so enabled flags, prefix rules, events and logging all apply:
+Every provider has its own facade, plus `Sms` for the default provider. Each one proxies the exact same singleton the factory returns, so enabled flags, prefix rules, events and logging all apply:
 
 ```php
 use Uzbek\Sms\Facades\Sms;
@@ -165,12 +217,12 @@ use Uzbek\Sms\Facades\PlayMobileSms;
 use Uzbek\Sms\Facades\TextUpSms;
 use Uzbek\Sms\Facades\SayqalSms;
 
-Sms::send('+998901234567', 'Your code is 4821');          // the default driver
+Sms::send('+998901234567', 'Your code is 4821');          // the default provider
 EskizSms::to('+998901234567')->text('Salom')->send();     // a specific provider
 SayqalSms::checkStatus($message->providerMessageId);      // capability methods too
 ```
 
-Root aliases are auto-registered, so `\EskizSms::send(...)` works without an import. A facade whose driver is disabled throws `DriverDisabledException` on its first call — same fail-fast rule as the factory.
+Root aliases are auto-registered, so `\EskizSms::send(...)` works without an import. A facade whose provider is disabled throws `DriverDisabledException` on its first call — same fail-fast rule as the factory.
 
 ### Bulk: one text, many numbers
 
@@ -213,7 +265,7 @@ foreach ($results as $message) {
 $results->where('successful', false)->count(); // failed recipients
 ```
 
-`SentMessage` fields: `driver`, `phone`, `text`, `status` (`DeliveryStatus` enum), `successful`, `providerMessageId`, `errorMessage`, `raw` (the provider response, for debugging).
+`SentMessage` fields: `provider`, `phone`, `text`, `status` (`DeliveryStatus` enum), `successful`, `providerMessageId`, `errorMessage`, `raw` (the provider response, for debugging).
 
 The only exceptions you will ever see are configuration errors at resolution time — see below.
 
@@ -243,9 +295,9 @@ if ($driver instanceof HandlesWebhooks) {
 }
 ```
 
-## Switching and combining drivers
+## Switching and combining providers
 
-The default driver comes from `SMS_DRIVER`. To use a specific provider regardless of the default, resolve it by name:
+The default provider comes from `SMS_PROVIDER`. To use a specific provider regardless of the default, resolve it by name:
 
 ```php
 use Uzbek\Sms\DriverFactory;
@@ -256,7 +308,7 @@ $factory->make('eskiz')->send($phone, $text);      // marketing route
 $factory->make('playmobile')->send($phone, $otp);  // transactional route
 ```
 
-Or reach for the per-driver facades — `EskizSms::send($phone, $text)` is the same instance behind a static face.
+Or reach for the per-provider facades — `EskizSms::send($phone, $text)` is the same instance behind a static face.
 
 ## Runtime credentials
 
@@ -273,7 +325,7 @@ app(DriverFactory::class)
 sms('eskiz', ['email' => $tenant->eskiz_email, 'password' => $tenant->eskiz_password])->send($phone, $text);
 ```
 
-Overrides are merged over the driver's config block. For token drivers (Eskiz, TextUp) each distinct credential set gets its **own cached token**, keyed by a hash of the credentials — so tenants never share or clobber each other's tokens, and the single-flight refresh still applies per account. Overriding a non-credential key (below) reuses the configured account's token, so it costs no extra login.
+Overrides are merged over the provider's config block. For token drivers (Eskiz, TextUp) each distinct credential set gets its **own cached token**, keyed by a hash of the credentials — so tenants never share or clobber each other's tokens, and the single-flight refresh still applies per account. Overriding a non-credential key (below) reuses the configured account's token, so it costs no extra login.
 
 The same mechanism sets any per-message option. TextUp's `isOtp`, for example, is per send:
 
@@ -301,40 +353,88 @@ The primary sends once. If it returns an unsuccessful `SentMessage`, the fallbac
 ```
 
 Notes:
-- **Single sends only** — `sendMany()` has no fallback.
+- **This is the single-send form** — `to()->...->send()` fails over as a whole. `sendMany()`/`many()` has its own per-message bulk fallback — see [Bulk fallback](#bulk-fallback) below.
 - **One secondary** — the fallback is not itself retried.
 - **Each attempt is real:** a failed primary and a successful fallback each fire `SmsSent` and (with the database log on) write their own `sms_logs` row — an honest record of "eskiz failed, playmobile delivered."
 - Fluent overrides (`otp()`, `from()`, `as()`) apply to the **primary only**; the fallback uses its own config.
-- An unknown or disabled fallback driver throws the usual resolution exception, but only if the fallback is actually triggered.
+- An unknown or disabled fallback provider throws the usual resolution exception, but only if the fallback is actually triggered.
+
+### Bulk fallback
+
+`sendMany()` takes the same idea as `useFallback()`, but per-message: only the recipients whose primary result failed are retried through the fallback, not the whole batch. Two equivalent forms:
+
+```php
+// Fluent, via many()
+$results = sms('sayqal')->many($messages)->useFallback('eskiz')->send();
+
+// Params, directly on sendMany()
+$results = sms('sayqal')->sendMany($messages, fallback: 'eskiz', fallbackWhen: fn (SentMessage $m) => ! $m->successful);
+```
+
+Both drive the exact same call — `many($messages)->useFallback(...)->send()` just collects the arguments and calls `sendMany($messages, $fallback, $fallbackWhen)` for you. The default predicate is "not successful"; pass your own `fallbackWhen` to decide differently. Only the messages that match are collected and re-sent as one batch through the fallback provider; the returned `Collection` keeps every recipient in their original position, whichever provider's result ended up there.
+
+Not every driver can be trusted with a partial retry — it needs to report *which individual message* failed, not just an all-or-nothing batch result. `Uzbek\Sms\Contracts\SupportsBulkFallback` is the marker interface that says a driver's `sendMany()` qualifies (either it sends one HTTP request per message under the hood, or its native batch endpoint reports success per item). Only `SayqalDriver` implements it today; `EskizDriver`, `PlayMobileDriver` and `TextUpDriver` do not. Passing `fallback` to one of those is a no-op — the primary results come back untouched — and a warning is logged (`SMS provider [x] does not support bulk fallback; returning primary results ...`). Set `SMS_SILENT=true` (`sms.silent`) to suppress that warning project-wide, e.g. if you deliberately pass a fallback to every provider regardless of support.
+
+### Default fallback provider
+
+Configure a fallback once per provider instead of calling `useFallback()` at every call site:
+
+```php
+// config/sms.php
+'providers' => [
+    'eskiz' => [
+        'driver' => 'eskiz',
+        'fallback' => 'sayqal',
+        // ...
+    ],
+],
+```
+
+It is picked up automatically by both fluent builders whenever the call site doesn't set its own `useFallback(...)`:
+
+```php
+sms('eskiz')->to('+998901234567')->text('Salom')->send();   // falls back to sayqal on failure
+sms('eskiz')->many($messages)->send();                      // same, per-message
+```
+
+An explicit `useFallback(...)` always overrides the configured default. Call `withoutFallback()` to send with no fallback at all, configured or not:
+
+```php
+sms('eskiz')->to('+998901234567')->text('Salom')->withoutFallback()->send();
+```
+
+The configured default only applies through the fluent builders. The bare `send($phone, $text)` and the raw `sendMany($messages)` call (no `fallback` argument) are unchanged — they never consult it.
 
 ## Enabling and disabling providers
 
-Every driver block has an `enabled` flag (`ESKIZ_ENABLED`, `PLAYMOBILE_ENABLED`, ...). Configuration problems fail fast at resolution time — before any HTTP request:
+Every provider block has an `enabled` flag (`ESKIZ_ENABLED`, `PLAYMOBILE_ENABLED`, ...). Configuration problems fail fast at resolution time — before any HTTP request:
 
 ```php
 $factory->make('nexmo');
-// Uzbek\Sms\Exceptions\UnknownDriverException:
-// SMS driver [nexmo] is not defined. Register it in the DriverFactory map and add a config/sms.php block.
+// Uzbek\Sms\Exceptions\UnknownProviderException:
+// SMS provider [nexmo] is not defined. Add a config/sms.php providers block.
 
 // with ESKIZ_ENABLED=false:
 $factory->make('eskiz');
 // Uzbek\Sms\Exceptions\DriverDisabledException:
-// SMS driver [eskiz] is disabled. Enable it via ESKIZ_ENABLED or config/sms.php.
+// SMS provider [eskiz] is disabled. Enable it via sms.providers.eskiz.enabled.
 ```
 
-Both extend `Uzbek\Sms\Exceptions\SmsException`. A disabled *default* driver throws on the first `app(Driver::class)` resolution, and webhook requests addressed to a disabled or unknown driver return 404 without leaking why.
+A third exception, `UnknownDriverException`, covers the narrower case where the provider block resolves but its `driver` key names neither a built-in driver nor a valid `AbstractDriver` subclass (see [Custom driver](#custom-driver)). All three extend `Uzbek\Sms\Exceptions\SmsException`. A disabled *default* provider throws on the first `app(Driver::class)` resolution, and webhook requests addressed to a disabled or unknown provider return 404 without leaking why.
 
 ## Restricting recipients by prefix
 
-Each driver block accepts a `prefixes` section — an allowed list, a blocked list, or both. By default both are empty and every number goes through.
+Each provider block accepts a `prefixes` section — an allowed list, a blocked list, or both. By default both are empty and every number goes through.
 
 ```php
 // config/sms.php
-'eskiz' => [
-    // ...
-    'prefixes' => [
-        'allowed' => [],            // non-empty = only these prefixes may receive SMS
-        'blocked' => ['99833'],     // always rejected; wins over the allowed list
+'providers' => [
+    'eskiz' => [
+        // ...
+        'prefixes' => [
+            'allowed' => [],            // non-empty = only these prefixes may receive SMS
+            'blocked' => ['99833'],     // always rejected; wins over the allowed list
+        ],
     ],
 ],
 ```
@@ -344,7 +444,7 @@ Rules are **per provider** — blocking a prefix on `eskiz` says nothing about `
 A prohibited number is rejected *before* any HTTP request and follows the usual pipeline rules: you get a `SentMessage::failed(...)` carrying the `ProhibitedPhoneException` message, `SmsSent` still fires, the attempt is logged, and the rest of a bulk send continues untouched:
 
 ```php
-config(['sms.drivers.eskiz.prefixes.blocked' => ['99897']]);
+config(['sms.providers.eskiz.prefixes.blocked' => ['99897']]);
 
 $results = app(Driver::class)->sendMany(OutboundMessage::sameText(
     ['+998901111111', '+998971111111'], 'Salom'
@@ -361,14 +461,14 @@ Events always fire; both logging channels are optional listeners layered on top.
 
 ### Database log (`SMS_LOG_DATABASE`, default off)
 
-With `SMS_LOG_DATABASE=true`, every send — including failures — becomes an `sms_logs` row; webhook callbacks and status pulls update the row's `status` by `(driver, provider_message_id)`. Query it like any model:
+With `SMS_LOG_DATABASE=true`, every send — including failures — becomes an `sms_logs` row; webhook callbacks and status pulls update the row's `status` by `(provider, provider_message_id)`. Query it like any model:
 
 ```php
 use Uzbek\Sms\Models\SmsLog;
 use Uzbek\Sms\Enums\DeliveryStatus;
 
 SmsLog::query()
-    ->where('driver', 'eskiz')
+    ->where('provider', 'eskiz')
     ->where('status', DeliveryStatus::Undelivered)
     ->where('created_at', '>=', now()->subDay())
     ->get();
@@ -380,7 +480,7 @@ While the channel stays off (the default), no rows are written — the events st
 
 ### Debug log (`SMS_LOG_DEBUG`, default off)
 
-Structured entries (driver, phone, provider message id, status, success flag, error) via Laravel's logger. Point it at a dedicated channel if you like:
+Structured entries (provider, phone, provider message id, status, success flag, error) via Laravel's logger. Point it at a dedicated channel if you like:
 
 ```dotenv
 SMS_LOG_DEBUG=true
@@ -416,7 +516,7 @@ Event::listen(SmsSent::class, function (SmsSent $event): void {
 });
 
 Event::listen(DeliveryStatusUpdated::class, function (DeliveryStatusUpdated $event): void {
-    // $event->driver, $event->providerMessageId, $event->status, $event->raw
+    // $event->provider, $event->providerMessageId, $event->status, $event->raw
 });
 ```
 
@@ -424,7 +524,7 @@ Event::listen(DeliveryStatusUpdated::class, function (DeliveryStatusUpdated $eve
 
 ## Webhooks
 
-Webhook routes register at `POST /{SMS_WEBHOOK_PATH}/{driver}` when `SMS_WEBHOOK_ENABLED=true` (off by default — send-only apps expose no endpoint). The route carries only the middleware from `config('sms.webhook.middleware')` — it deliberately sits outside the `web` group and CSRF, because providers POST server-to-server.
+Webhook routes register at `POST /{SMS_WEBHOOK_PATH}/{provider}` when `SMS_WEBHOOK_ENABLED=true` (off by default — send-only apps expose no endpoint). The route carries only the middleware from `config('sms.webhook.middleware')` — it deliberately sits outside the `web` group and CSRF, because providers POST server-to-server.
 
 ### PlayMobile
 
@@ -437,9 +537,11 @@ https://your-app.uz/sms/webhooks/playmobile?token=<PLAYMOBILE_WEBHOOK_SECRET>
 Setting a secret is recommended, since the endpoint sits outside `web`/CSRF. Optionally pin the sender IPs in `config/sms.php`:
 
 ```php
-'playmobile' => [
-    // ...
-    'allowed_ips' => ['185.8.212.47'],
+'providers' => [
+    'playmobile' => [
+        // ...
+        'allowed_ips' => ['185.8.212.47'],
+    ],
 ],
 ```
 
@@ -460,7 +562,7 @@ Eskiz and TextUp tokens are cached and refreshed with a **single-flight** strate
 
 ## Adding a new driver
 
-Adding a provider touches nothing existing: extend `AbstractDriver`, implement `doSend()` + `resolveAuthenticator()` + `mapStatus()`, add capability interfaces if the provider supports them, add a config block, and register one line in the `DriverFactory` map.
+Adding a provider touches nothing existing: extend `AbstractDriver`, implement `doSend()` + `resolveAuthenticator()` + `mapStatus()`, add capability interfaces if the provider supports them, add a config block, and register one line in the `DriverFactory` map so the short name (`'acme'`) is available everywhere. If you only need the driver in your own app, skip that last step entirely and reference the class directly in a provider's `driver` key instead — see [Custom driver](#custom-driver).
 
 A complete worked example — a fictional provider with API-key auth and status pull:
 
@@ -505,7 +607,7 @@ final class AcmeDriver extends AbstractDriver implements ChecksDeliveryStatus
         ]);
 
         return SentMessage::success(
-            driver: $this->name(),
+            provider: $this->name(),
             phone: $phone,
             text: $text,
             providerMessageId: (string) $response->json('message_id'),
@@ -543,12 +645,15 @@ Then the config block:
 
 ```php
 // config/sms.php
-'acme' => [
-    'enabled' => (bool) env('ACME_ENABLED', true),
-    'base_url' => env('ACME_BASE_URL', 'https://api.acme.example/v1'),
-    'api_key' => env('ACME_API_KEY'),
-    'from' => env('ACME_FROM'),
-    'http_options' => [],
+'providers' => [
+    'acme' => [
+        'driver' => 'acme',
+        'enabled' => (bool) env('ACME_ENABLED', true),
+        'base_url' => env('ACME_BASE_URL', 'https://api.acme.example/v1'),
+        'api_key' => env('ACME_API_KEY'),
+        'from' => env('ACME_FROM'),
+        'http_options' => [],
+    ],
 ],
 ```
 

@@ -20,11 +20,6 @@ final class TextUpDriver extends AbstractDriver implements ChecksDeliveryStatus
 {
     private const DEFAULT_TOKEN_TTL = 86400;
 
-    public function name(): string
-    {
-        return 'textup';
-    }
-
     public static function resolveAuthenticator(
         array $config,
         CacheRepository $cache,
@@ -69,7 +64,7 @@ final class TextUpDriver extends AbstractDriver implements ChecksDeliveryStatus
         $smsId = $response->json('smsId');
 
         return SentMessage::success(
-            driver: $this->name(),
+            provider: $this->name(),
             phone: $phone,
             text: $text,
             providerMessageId: $smsId !== null ? (string) $smsId : null,
@@ -119,7 +114,7 @@ final class TextUpDriver extends AbstractDriver implements ChecksDeliveryStatus
 
         // One smsId covers every recipient; suffix the phone to keep ids unique.
         return $messages->map(fn (OutboundMessage $message, int $index): SentMessage => SentMessage::success(
-            driver: $this->name(),
+            provider: $this->name(),
             phone: $phones[$index],
             text: $message->text,
             providerMessageId: "{$smsId}:{$phones[$index]}",

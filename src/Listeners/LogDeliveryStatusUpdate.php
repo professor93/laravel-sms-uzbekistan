@@ -12,7 +12,7 @@ final class LogDeliveryStatusUpdate
     public function handle(DeliveryStatusUpdated $event): void
     {
         Log::channel(config('sms.logging.channel'))->info('SMS delivery status updated', [
-            'driver' => $event->driver,
+            'provider' => $event->provider,
             'provider_message_id' => $event->providerMessageId,
             'status' => $event->status->value,
         ]);

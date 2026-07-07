@@ -23,7 +23,7 @@ final class PersistSentMessage
 
         if ($message->providerMessageId === null) {
             SmsLog::query()->create([
-                'driver' => $message->driver,
+                'provider' => $message->provider,
                 'provider_message_id' => null,
                 ...$attributes,
             ]);
@@ -31,9 +31,9 @@ final class PersistSentMessage
             return;
         }
 
-        // Upsert keeps the unique (driver, provider_message_id) index safe.
+        // Upsert keeps the unique (provider, provider_message_id) index safe.
         SmsLog::query()->updateOrCreate(
-            ['driver' => $message->driver, 'provider_message_id' => $message->providerMessageId],
+            ['provider' => $message->provider, 'provider_message_id' => $message->providerMessageId],
             $attributes,
         );
     }

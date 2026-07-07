@@ -6,12 +6,12 @@ namespace Uzbek\Sms\Exceptions;
 
 final class DriverDisabledException extends SmsException
 {
-    public static function make(string $driver): self
+    public static function make(string $provider): self
     {
         return new self(sprintf(
-            'SMS driver [%s] is disabled. Enable it via %s_ENABLED or config/sms.php.',
-            $driver,
-            strtoupper($driver),
+            'SMS provider [%s] is disabled. Enable it via sms.providers.%s.enabled.',
+            $provider,
+            $provider,
         ));
     }
 }

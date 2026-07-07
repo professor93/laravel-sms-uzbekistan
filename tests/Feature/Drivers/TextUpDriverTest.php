@@ -45,7 +45,7 @@ it('sends a single sms with E.164 phone and required userId', function () {
 });
 
 it('captures userId from the login response and uses it when none is configured', function () {
-    config()->set('sms.drivers.textup.user_id', null);
+    config()->set('sms.providers.textup.user_id', null);
 
     Http::fake([
         'api-auth.textup.uz/v1/login' => Http::response([
@@ -69,7 +69,7 @@ it('captures userId from the login response and uses it when none is configured'
 });
 
 it('prefers a configured userId over the captured one', function () {
-    config()->set('sms.drivers.textup.user_id', 'configured-uuid');
+    config()->set('sms.providers.textup.user_id', 'configured-uuid');
 
     Http::fake([
         'api-auth.textup.uz/v1/login' => Http::response([

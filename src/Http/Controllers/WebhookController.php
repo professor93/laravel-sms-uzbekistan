@@ -15,10 +15,10 @@ use Uzbek\Sms\Exceptions\SmsException;
 
 final class WebhookController
 {
-    public function __invoke(Request $request, DriverFactory $factory, string $driver): Response
+    public function __invoke(Request $request, DriverFactory $factory, string $provider): Response
     {
         try {
-            $instance = $factory->make($driver);
+            $instance = $factory->make($provider);
         } catch (SmsException) {
             // Never leak configuration state on a public endpoint.
             abort(404);
@@ -34,7 +34,7 @@ final class WebhookController
 
         foreach ($instance->parseWebhook($request) as $report) {
             Event::dispatch(new DeliveryStatusUpdated(
-                driver: $instance->name(),
+                provider: $instance->name(),
                 providerMessageId: $report->providerMessageId,
                 status: $report->status,
                 raw: $report->raw,

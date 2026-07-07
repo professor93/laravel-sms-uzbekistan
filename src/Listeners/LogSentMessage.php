@@ -17,7 +17,7 @@ final class LogSentMessage
             $message->successful ? 'info' : 'warning',
             'SMS send attempt',
             [
-                'driver' => $message->driver,
+                'provider' => $message->provider,
                 'phone' => $message->phone,
                 'provider_message_id' => $message->providerMessageId,
                 'status' => $message->status->value,

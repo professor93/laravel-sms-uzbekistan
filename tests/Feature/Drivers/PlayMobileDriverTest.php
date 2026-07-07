@@ -24,7 +24,7 @@ it('sends a single sms through the messages array with basic auth', function () 
     $message = playmobile()->send('+998 91 111-22-33', 'Salom');
 
     expect($message->successful)->toBeTrue()
-        ->and($message->driver)->toBe('playmobile')
+        ->and($message->provider)->toBe('playmobile')
         ->and($message->phone)->toBe('998911112233')
         ->and($message->providerMessageId)->not->toBeNull();
 

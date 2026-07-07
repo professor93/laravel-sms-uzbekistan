@@ -13,7 +13,7 @@ final class SentMessage extends Data
      * @param  array<array-key, mixed>  $raw
      */
     public function __construct(
-        public string $driver,
+        public string $provider,
         public string $phone,
         public string $text,
         public DeliveryStatus $status,
@@ -27,7 +27,7 @@ final class SentMessage extends Data
      * @param  array<array-key, mixed>  $raw
      */
     public static function success(
-        string $driver,
+        string $provider,
         string $phone,
         string $text,
         ?string $providerMessageId,
@@ -35,7 +35,7 @@ final class SentMessage extends Data
         DeliveryStatus $status = DeliveryStatus::Pending,
     ): self {
         return new self(
-            driver: $driver,
+            provider: $provider,
             phone: $phone,
             text: $text,
             status: $status,
@@ -49,14 +49,14 @@ final class SentMessage extends Data
      * @param  array<array-key, mixed>  $raw
      */
     public static function failed(
-        string $driver,
+        string $provider,
         string $phone,
         string $text,
         ?string $errorMessage,
         array $raw = [],
     ): self {
         return new self(
-            driver: $driver,
+            provider: $provider,
             phone: $phone,
             text: $text,
             status: DeliveryStatus::Failed,

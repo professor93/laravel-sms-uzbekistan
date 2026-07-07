@@ -108,7 +108,7 @@ it('exposes runtime credentials through the sms() helper', function () {
 });
 
 it('still fails fast for a disabled driver even with runtime credentials', function () {
-    config()->set('sms.drivers.eskiz.enabled', false);
+    config()->set('sms.providers.eskiz.enabled', false);
 
     app(DriverFactory::class)->make('eskiz', ['email' => 'x@acme.uz', 'password' => 'y']);
 })->throws(\Uzbek\Sms\Exceptions\DriverDisabledException::class);
@@ -122,7 +122,7 @@ it('does not crash when an override value is not serializable', function () {
 });
 
 it('uses the captured userId for overridden textup credentials, not the base config id', function () {
-    config()->set('sms.drivers.textup.user_id', 'base-account-id');
+    config()->set('sms.providers.textup.user_id', 'base-account-id');
 
     Http::fake([
         'api-auth.textup.uz/v1/login' => Http::response(['accessToken' => 'jwt-t', 'user' => ['id' => 'tenant-id-42']]),

@@ -21,7 +21,7 @@ it('sends through a per-driver facade', function () {
     $message = EskizSms::send('+998901234567', 'Salom');
 
     expect($message->successful)->toBeTrue()
-        ->and($message->driver)->toBe('eskiz')
+        ->and($message->provider)->toBe('eskiz')
         ->and($message->providerMessageId)->toBe('7');
 });
 
@@ -42,7 +42,7 @@ it('exposes the fluent builder through facades', function () {
     $message = SayqalSms::to('+998931234567')->text('Salom')->send();
 
     expect($message->successful)->toBeTrue()
-        ->and($message->driver)->toBe('sayqal');
+        ->and($message->provider)->toBe('sayqal');
 });
 
 it('pulls delivery status through facades', function () {
@@ -65,7 +65,12 @@ it('follows the configured default driver', function () {
 });
 
 it('fails fast when the driver behind a facade is disabled', function () {
-    config()->set('sms.drivers.eskiz.enabled', false);
+    config()->set('sms.providers.eskiz.enabled', false);
 
     EskizSms::name();
 })->throws(DriverDisabledException::class);
+
+it('binds a container entry per configured provider', function () {
+    expect(app('sms.provider.eskiz'))->toBe(app(DriverFactory::class)->make('eskiz'))
+        ->and(app('sms.provider.sayqal'))->toBe(app(DriverFactory::class)->make('sayqal'));
+});

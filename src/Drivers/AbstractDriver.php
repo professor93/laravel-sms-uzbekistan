@@ -4,19 +4,24 @@ declare(strict_types=1);
 
 namespace Uzbek\Sms\Drivers;
 
+use Closure;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 use Uzbek\Sms\Contracts\Authenticator;
 use Uzbek\Sms\Contracts\Driver;
+use Uzbek\Sms\Contracts\SupportsBulkFallback;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
+use Uzbek\Sms\DriverFactory;
 use Uzbek\Sms\Events\SmsSent;
 use Uzbek\Sms\Exceptions\ProhibitedPhoneException;
+use Uzbek\Sms\PendingBulkMessage;
 use Uzbek\Sms\PendingMessage;
 
 abstract class AbstractDriver implements Driver
@@ -48,9 +53,10 @@ abstract class AbstractDriver implements Driver
 
     /**
      * @param  iterable<OutboundMessage>  $messages
+     * @param  Closure(SentMessage): bool|null  $fallbackWhen
      * @return Collection<int, SentMessage>
      */
-    final public function sendMany(iterable $messages): Collection
+    final public function sendMany(iterable $messages, ?string $fallback = null, ?Closure $fallbackWhen = null): Collection
     {
         $messages = Collection::make($messages)->values();
 
@@ -75,17 +81,69 @@ abstract class AbstractDriver implements Driver
         $sent = $sendable->isEmpty() ? new Collection : $this->doSendMany($sendable->values());
 
         if ($rejected === []) {
-            return $sent;
+            $primary = $sent;
+        } else {
+            $primary = new Collection;
+            $next = 0;
+
+            foreach ($messages->keys() as $index) {
+                $primary->push($rejected[$index] ?? $sent->get($next++));
+            }
         }
 
-        $results = new Collection;
-        $next = 0;
+        return $this->applyBulkFallback($messages, $primary, $fallback, $fallbackWhen);
+    }
 
-        foreach ($messages->keys() as $index) {
-            $results->push($rejected[$index] ?? $sent->get($next++));
+    /**
+     * @param  Collection<int, OutboundMessage>  $messages
+     * @param  Collection<int, SentMessage>  $primary
+     * @param  Closure(SentMessage): bool|null  $fallbackWhen
+     * @return Collection<int, SentMessage>
+     */
+    private function applyBulkFallback(Collection $messages, Collection $primary, ?string $fallback, ?Closure $fallbackWhen): Collection
+    {
+        if ($fallback === null || $fallback === '') {
+            return $primary;
         }
 
-        return $results;
+        $predicate = $fallbackWhen ?? fn (SentMessage $message): bool => ! $message->successful;
+
+        $retryKeys = $primary->keys()->filter(fn (int $index): bool => $predicate($primary->get($index)))->values();
+
+        if ($retryKeys->isEmpty()) {
+            return $primary;
+        }
+
+        if (! $this instanceof SupportsBulkFallback) {
+            $this->warnUnsupportedBulkFallback($fallback);
+
+            return $primary;
+        }
+
+        $retryMessages = $retryKeys->map(fn (int $index): OutboundMessage => $messages->get($index))->values();
+
+        $fallbackResults = app(DriverFactory::class)->make($fallback)->sendMany($retryMessages);
+
+        $merged = $primary->all();
+
+        $retryKeys->each(function (int $originalIndex, int $position) use (&$merged, $fallbackResults): void {
+            $merged[$originalIndex] = $fallbackResults->get($position);
+        });
+
+        return Collection::make($merged)->values();
+    }
+
+    private function warnUnsupportedBulkFallback(string $fallback): void
+    {
+        if (config('sms.silent')) {
+            return;
+        }
+
+        Log::channel(config('sms.logging.channel'))->warning(sprintf(
+            'SMS provider [%s] does not support bulk fallback; returning primary results (requested fallback [%s]).',
+            $this->name(),
+            $fallback,
+        ));
     }
 
     /**
@@ -100,6 +158,23 @@ abstract class AbstractDriver implements Driver
     public function to(string $phone): PendingMessage
     {
         return (new PendingMessage($this))->to($phone);
+    }
+
+    public function many(iterable $messages): PendingBulkMessage
+    {
+        return new PendingBulkMessage($this, $messages);
+    }
+
+    public function name(): string
+    {
+        return (string) ($this->config['name'] ?? '');
+    }
+
+    public function defaultFallback(): ?string
+    {
+        $fallback = $this->config['fallback'] ?? null;
+
+        return is_string($fallback) && $fallback !== '' ? $fallback : null;
     }
 
     abstract protected function doSend(string $phone, string $text): SentMessage;

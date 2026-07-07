@@ -21,11 +21,6 @@ use Uzbek\Sms\Exceptions\SmsException;
 
 final class PlayMobileDriver extends AbstractDriver implements HandlesWebhooks
 {
-    public function name(): string
-    {
-        return 'playmobile';
-    }
-
     public static function resolveAuthenticator(
         array $config,
         CacheRepository $cache,
@@ -103,7 +98,7 @@ final class PlayMobileDriver extends AbstractDriver implements HandlesWebhooks
             $error = sprintf('PlayMobile error %s: %s', $errorCode, $response->json('error-description') ?? 'unknown');
 
             return $entries->map(fn (array $entry): SentMessage => SentMessage::failed(
-                driver: $this->name(),
+                provider: $this->name(),
                 phone: $entry['recipient'],
                 text: $entry['sms']['content']['text'],
                 errorMessage: $error,
@@ -114,7 +109,7 @@ final class PlayMobileDriver extends AbstractDriver implements HandlesWebhooks
         $raw = (array) $response->json();
 
         return $entries->map(fn (array $entry): SentMessage => SentMessage::success(
-            driver: $this->name(),
+            provider: $this->name(),
             phone: $entry['recipient'],
             text: $entry['sms']['content']['text'],
             providerMessageId: $entry['message-id'],

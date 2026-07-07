@@ -32,8 +32,9 @@ abstract class TestCase extends Orchestra
             // Both ship disabled by default; the suite exercises them.
             $config->set('sms.webhook.enabled', true);
             $config->set('sms.logging.database', true);
-            $config->set('sms.drivers', [
+            $config->set('sms.providers', [
                 'eskiz' => [
+                    'driver' => 'eskiz',
                     'enabled' => true,
                     'base_url' => 'https://notify.eskiz.uz/api',
                     'email' => 'sender@example.test',
@@ -43,6 +44,7 @@ abstract class TestCase extends Orchestra
                     'http_options' => [],
                 ],
                 'playmobile' => [
+                    'driver' => 'playmobile',
                     'enabled' => true,
                     'base_url' => 'https://send.smsxabar.uz/broker-api',
                     'username' => 'acme',
@@ -53,6 +55,7 @@ abstract class TestCase extends Orchestra
                     'http_options' => [],
                 ],
                 'textup' => [
+                    'driver' => 'textup',
                     'enabled' => true,
                     'base_url' => 'https://sms-api.textup.uz/v1',
                     'auth_url' => 'https://api-auth.textup.uz/v1',
@@ -65,6 +68,7 @@ abstract class TestCase extends Orchestra
                     'http_options' => [],
                 ],
                 'sayqal' => [
+                    'driver' => 'sayqal',
                     'enabled' => true,
                     'base_url' => 'https://routee.sayqal.uz/sms',
                     'username' => 'acme',

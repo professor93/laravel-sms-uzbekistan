@@ -32,9 +32,9 @@ final class SmsServiceProvider extends ServiceProvider
 
         $this->app->singleton(Driver::class, fn (Application $app): Driver => $app->make(DriverFactory::class)->default());
 
-        foreach (DriverFactory::names() as $name) {
+        foreach (array_keys((array) $this->app->make(ConfigRepository::class)->get('sms.providers', [])) as $name) {
             $this->app->singleton(
-                "sms.driver.{$name}",
+                "sms.provider.{$name}",
                 fn (Application $app): Driver => $app->make(DriverFactory::class)->make($name),
             );
         }

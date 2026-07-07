@@ -12,7 +12,7 @@ final class DeliveryStatusUpdated
      * @param  array<array-key, mixed>  $raw
      */
     public function __construct(
-        public readonly string $driver,
+        public readonly string $provider,
         public readonly string $providerMessageId,
         public readonly DeliveryStatus $status,
         public readonly array $raw = [],

@@ -17,7 +17,7 @@ it('accepts a verified webhook and dispatches DeliveryStatusUpdated', function (
         ],
     ])->assertOk();
 
-    Event::assertDispatched(DeliveryStatusUpdated::class, fn (DeliveryStatusUpdated $event): bool => $event->driver === 'playmobile'
+    Event::assertDispatched(DeliveryStatusUpdated::class, fn (DeliveryStatusUpdated $event): bool => $event->provider === 'playmobile'
         && $event->providerMessageId === 'MSG-1'
         && $event->status === DeliveryStatus::Delivered);
 
@@ -29,7 +29,7 @@ it('accepts a verified webhook and dispatches DeliveryStatusUpdated', function (
 
 it('updates the matching sms_logs row by driver and provider id', function () {
     $log = SmsLog::query()->create([
-        'driver' => 'playmobile',
+        'provider' => 'playmobile',
         'provider_message_id' => 'MSG-9',
         'phone' => '998901234567',
         'text' => 'Salom',
@@ -50,7 +50,7 @@ it('rejects a webhook with a bad token', function () {
 });
 
 it('accepts a webhook without a token when no secret is configured', function () {
-    config()->set('sms.drivers.playmobile.webhook_secret', null);
+    config()->set('sms.providers.playmobile.webhook_secret', null);
 
     Event::fake([DeliveryStatusUpdated::class]);
 
@@ -62,7 +62,7 @@ it('accepts a webhook without a token when no secret is configured', function ()
 });
 
 it('still enforces the token once a secret is configured', function () {
-    config()->set('sms.drivers.playmobile.webhook_secret', 'hook-secret');
+    config()->set('sms.providers.playmobile.webhook_secret', 'hook-secret');
 
     $this->postJson('/sms/webhooks/playmobile', [
         'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
@@ -70,7 +70,7 @@ it('still enforces the token once a secret is configured', function () {
 });
 
 it('rejects a webhook from an unlisted IP when the allowlist is set', function () {
-    config()->set('sms.drivers.playmobile.allowed_ips', ['203.0.113.10']);
+    config()->set('sms.providers.playmobile.allowed_ips', ['203.0.113.10']);
 
     $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
         'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
@@ -86,7 +86,7 @@ it('returns 404 for an unknown driver', function () {
 });
 
 it('returns 404 for a disabled driver', function () {
-    config()->set('sms.drivers.playmobile.enabled', false);
+    config()->set('sms.providers.playmobile.enabled', false);
 
     $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
         'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],

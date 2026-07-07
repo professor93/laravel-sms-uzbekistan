@@ -19,7 +19,7 @@ it('persists a successful send to sms_logs', function () {
 
     $log = SmsLog::query()->sole();
 
-    expect($log->driver)->toBe('eskiz')
+    expect($log->provider)->toBe('eskiz')
         ->and($log->provider_message_id)->toBe('555')
         ->and($log->phone)->toBe('998901234567')
         ->and($log->text)->toBe('Salom')
@@ -61,7 +61,7 @@ it('keeps the bulk loop alive when a listener throws after transmission', functi
 
 it('updates a row status when DeliveryStatusUpdated is dispatched', function () {
     SmsLog::query()->create([
-        'driver' => 'eskiz',
+        'provider' => 'eskiz',
         'provider_message_id' => '555',
         'phone' => '998901234567',
         'text' => 'Salom',
@@ -75,7 +75,7 @@ it('updates a row status when DeliveryStatusUpdated is dispatched', function () 
 
 it('leaves rows of other drivers untouched', function () {
     SmsLog::query()->create([
-        'driver' => 'playmobile',
+        'provider' => 'playmobile',
         'provider_message_id' => '555',
         'phone' => '998901234567',
         'text' => 'Salom',

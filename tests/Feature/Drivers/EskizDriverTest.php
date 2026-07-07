@@ -28,7 +28,7 @@ it('sends a single sms and dispatches SmsSent once', function () {
     $message = eskiz()->send('+998 90 123-45-67', 'Salom dunyo');
 
     expect($message->successful)->toBeTrue()
-        ->and($message->driver)->toBe('eskiz')
+        ->and($message->provider)->toBe('eskiz')
         ->and($message->phone)->toBe('998901234567')
         ->and($message->providerMessageId)->toBe('4385062')
         ->and($message->status)->toBe(DeliveryStatus::Pending);

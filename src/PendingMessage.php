@@ -20,6 +20,8 @@ final class PendingMessage
 
     private ?string $fallback = null;
 
+    private bool $fallbackDisabled = false;
+
     /** @var Closure(SentMessage): bool|null */
     private ?Closure $fallbackWhen = null;
 
@@ -84,10 +86,17 @@ final class PendingMessage
     /**
      * @param  Closure(SentMessage): bool|null  $when
      */
-    public function useFallback(string $driver, ?Closure $when = null): self
+    public function useFallback(string $provider, ?Closure $when = null): self
     {
-        $this->fallback = $driver;
+        $this->fallback = $provider;
         $this->fallbackWhen = $when;
+
+        return $this;
+    }
+
+    public function withoutFallback(): self
+    {
+        $this->fallbackDisabled = true;
 
         return $this;
     }
@@ -102,10 +111,12 @@ final class PendingMessage
             throw new LogicException('No text set. Call text() before send().');
         }
 
+        $fallback = $this->effectiveFallback();
+
         $result = $this->primary()->send($this->phone, $this->text);
 
-        if ($this->fallback !== null && $this->shouldFallback($result)) {
-            return app(DriverFactory::class)->make($this->fallback)->send($this->phone, $this->text);
+        if ($fallback !== null && $this->shouldFallback($result)) {
+            return app(DriverFactory::class)->make($fallback)->send($this->phone, $this->text);
         }
 
         return $result;
@@ -125,5 +136,14 @@ final class PendingMessage
         return $this->fallbackWhen !== null
             ? ($this->fallbackWhen)($result)
             : ! $result->successful;
+    }
+
+    private function effectiveFallback(): ?string
+    {
+        if ($this->fallbackDisabled) {
+            return null;
+        }
+
+        return $this->fallback ?? $this->driver->defaultFallback();
     }
 }

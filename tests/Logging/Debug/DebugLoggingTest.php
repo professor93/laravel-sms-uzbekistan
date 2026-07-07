@@ -25,7 +25,7 @@ it('writes a structured entry to the configured channel without credentials', fu
 
     expect($entries)->toHaveCount(1)
         ->and($entries[0]['level'])->toBe('info')
-        ->and($entries[0]['context']['driver'])->toBe('eskiz')
+        ->and($entries[0]['context']['provider'])->toBe('eskiz')
         ->and($entries[0]['context']['phone'])->toBe('998901234567')
         ->and($entries[0]['context']['provider_message_id'])->toBe('777')
         ->and($entries[0]['context']['successful'])->toBeTrue();

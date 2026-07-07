@@ -11,16 +11,12 @@ use Psr\Http\Message\RequestInterface;
 use Uzbek\Sms\Authenticators\SignedTokenAuthenticator;
 use Uzbek\Sms\Contracts\Authenticator;
 use Uzbek\Sms\Contracts\ChecksDeliveryStatus;
+use Uzbek\Sms\Contracts\SupportsBulkFallback;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Enums\DeliveryStatus;
 
-final class SayqalDriver extends AbstractDriver implements ChecksDeliveryStatus
+final class SayqalDriver extends AbstractDriver implements ChecksDeliveryStatus, SupportsBulkFallback
 {
-    public function name(): string
-    {
-        return 'sayqal';
-    }
-
     public static function resolveAuthenticator(
         array $config,
         CacheRepository $cache,
@@ -68,7 +64,7 @@ final class SayqalDriver extends AbstractDriver implements ChecksDeliveryStatus
         $providerMessageId = sprintf('%s:%s', $response->json('transactionid'), $smsId);
 
         return SentMessage::success(
-            driver: $this->name(),
+            provider: $this->name(),
             phone: $phone,
             text: $text,
             providerMessageId: $providerMessageId,
