@@ -30,6 +30,13 @@ return [
         'eskiz' => [
             'driver' => 'eskiz',
             'enabled' => (bool) env('ESKIZ_ENABLED', true),
+
+            // Default fallback provider: when a send fails, it is retried through
+            // this provider. The value must be another key in this `providers` array.
+            // Leave empty (null) to disable. Override per-message with
+            // ->useFallback('other') or disable with ->withoutFallback().
+            'fallback' => env('ESKIZ_FALLBACK'),
+
             'base_url' => env('ESKIZ_BASE_URL', 'https://notify.eskiz.uz/api'),
             'email' => env('ESKIZ_EMAIL'),
             'password' => env('ESKIZ_PASSWORD'),
@@ -47,6 +54,7 @@ return [
         'playmobile' => [
             'driver' => 'playmobile',
             'enabled' => (bool) env('PLAYMOBILE_ENABLED', true),
+            'fallback' => env('PLAYMOBILE_FALLBACK'),
             'base_url' => env('PLAYMOBILE_BASE_URL', 'https://send.smsxabar.uz/broker-api'),
             'username' => env('PLAYMOBILE_USERNAME'),
             'password' => env('PLAYMOBILE_PASSWORD'),
@@ -63,6 +71,7 @@ return [
         'textup' => [
             'driver' => 'textup',
             'enabled' => (bool) env('TEXTUP_ENABLED', true),
+            'fallback' => env('TEXTUP_FALLBACK'),
             'base_url' => env('TEXTUP_BASE_URL', 'https://sms-api.textup.uz/v1'),
             'auth_url' => env('TEXTUP_AUTH_URL', 'https://api-auth.textup.uz/v1'),
             'email' => env('TEXTUP_EMAIL'),
@@ -80,6 +89,7 @@ return [
         'sayqal' => [
             'driver' => 'sayqal',
             'enabled' => (bool) env('SAYQAL_ENABLED', true),
+            'fallback' => env('SAYQAL_FALLBACK'),
             'base_url' => env('SAYQAL_BASE_URL', 'https://routee.sayqal.uz/sms'),
             'username' => env('SAYQAL_USERNAME'),
             'secret_key' => env('SAYQAL_SECRET_KEY'),
