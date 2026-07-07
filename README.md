@@ -86,7 +86,6 @@ PLAYMOBILE_WEBHOOK_SECRET=       # random string; part of the callback URL
 TEXTUP_ENABLED=true
 TEXTUP_EMAIL=account@example.com
 TEXTUP_PASSWORD=secret
-TEXTUP_USER_ID=                  # optional; auto-captured from login and cached if left empty
 TEXTUP_NICKNAME_ID=              # optional; empty = the short number
 TEXTUP_TOKEN_TTL=86400
 TEXTUP_IS_OTP=false
