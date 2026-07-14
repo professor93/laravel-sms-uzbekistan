@@ -12,12 +12,14 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 use Uzbek\Sms\Contracts\Authenticator;
 use Uzbek\Sms\Contracts\Driver;
 use Uzbek\Sms\Contracts\SupportsBulkFallback;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
+use Uzbek\Sms\Debug\DebugCollector;
 use Uzbek\Sms\DriverFactory;
 use Uzbek\Sms\Events\SmsSent;
 use Uzbek\Sms\Exceptions\ProhibitedPhoneException;
@@ -41,7 +43,9 @@ abstract class AbstractDriver implements Driver
         try {
             $this->guardPhone($phone);
 
-            $message = $this->doSend($phone, $text);
+            $message = $this->faking()
+                ? $this->fakeResult($phone, $text, $this->fakeSuccessRate(), app(DebugCollector::class))
+                : $this->doSend($phone, $text);
         } catch (Throwable $e) {
             $message = SentMessage::failed($this->name(), $phone, $text, $e->getMessage());
         }
@@ -78,7 +82,11 @@ abstract class AbstractDriver implements Driver
             $this->dispatchSent($failure);
         }
 
-        $sent = $sendable->isEmpty() ? new Collection : $this->doSendMany($sendable->values());
+        $sent = match (true) {
+            $sendable->isEmpty() => new Collection,
+            $this->faking() => $this->fakeSendMany($sendable->values()),
+            default => $this->doSendMany($sendable->values()),
+        };
 
         if ($rejected === []) {
             $primary = $sent;
@@ -122,15 +130,102 @@ abstract class AbstractDriver implements Driver
 
         $retryMessages = $retryKeys->map(fn (int $index): OutboundMessage => $messages->get($index))->values();
 
+        app(DebugCollector::class)->record([
+            'type' => 'fallback',
+            'from' => $this->name(),
+            'to' => $fallback,
+            'messages' => $retryKeys->count(),
+        ]);
+
         $fallbackResults = app(DriverFactory::class)->make($fallback)->sendMany($retryMessages);
 
         $merged = $primary->all();
 
         $retryKeys->each(function (int $originalIndex, int $position) use (&$merged, $fallbackResults): void {
-            $merged[$originalIndex] = $fallbackResults->get($position);
+            $retried = $fallbackResults->get($position);
+
+            // A custom fallback driver may return fewer results than asked —
+            // keep the primary failure rather than dereferencing null.
+            if ($retried instanceof SentMessage) {
+                $retried->fallbackFrom = $this->name();
+
+                $merged[$originalIndex] = $retried;
+            }
         });
 
         return Collection::make($merged)->values();
+    }
+
+    private function faking(): bool
+    {
+        return (bool) config('sms.fake.enabled');
+    }
+
+    // Blank counts as unset; anything else outside 0..1 (e.g. "90" meant as
+    // a percentage) is a misconfiguration — warn and use the default.
+    private function fakeSuccessRate(): float
+    {
+        $rate = config('sms.fake.success_rate', 1.0);
+
+        if ($rate === null || $rate === '') {
+            return 1.0;
+        }
+
+        if (! is_numeric($rate) || (float) $rate < 0.0 || (float) $rate > 1.0) {
+            if (! config('sms.silent')) {
+                Log::channel(config('sms.logging.channel'))->warning(sprintf(
+                    'Invalid sms.fake.success_rate [%s]; expected a probability between 0 and 1, using 1.0.',
+                    is_scalar($rate) ? (string) $rate : gettype($rate),
+                ));
+            }
+
+            return 1.0;
+        }
+
+        return (float) $rate;
+    }
+
+    /**
+     * @param  Collection<int, OutboundMessage>  $messages
+     * @return Collection<int, SentMessage>
+     */
+    private function fakeSendMany(Collection $messages): Collection
+    {
+        $rate = $this->fakeSuccessRate();
+        $collector = app(DebugCollector::class);
+
+        return $messages->map(function (OutboundMessage $message) use ($rate, $collector): SentMessage {
+            $result = $this->fakeResult($message->phone, $message->text, $rate, $collector);
+
+            $this->dispatchSent($result);
+
+            return $result;
+        });
+    }
+
+    private function fakeResult(string $phone, string $text, float $rate, DebugCollector $collector): SentMessage
+    {
+        $successful = $rate >= 1.0 || (mt_rand() / mt_getrandmax()) < $rate;
+
+        $collector->record([
+            'type' => 'fake',
+            'provider' => $this->name(),
+            'phone' => $phone,
+            'success_rate' => $rate,
+            'successful' => $successful,
+        ]);
+
+        if ($successful) {
+            return SentMessage::success(
+                provider: $this->name(),
+                phone: $phone,
+                text: $text,
+                providerMessageId: 'fake-'.Str::ulid(),
+                raw: ['fake' => true],
+            );
+        }
+
+        return SentMessage::failed($this->name(), $phone, $text, 'Simulated failure (fake mode).', ['fake' => true]);
     }
 
     private function warnUnsupportedBulkFallback(string $fallback): void

@@ -170,6 +170,8 @@ sms('textup')
     ->send();
 ```
 
+A builder is single-use: calling `send()` a second time on the same `PendingMessage` (or bulk `many()` builder) throws a `LogicException` instead of sending the SMS again. Build a new message for each send. A validation failure (missing `to()`/`text()`) does *not* burn the builder — fix it and `send()` again.
+
 ### Direct
 
 ```php
@@ -264,7 +266,7 @@ foreach ($results as $message) {
 $results->where('successful', false)->count(); // failed recipients
 ```
 
-`SentMessage` fields: `provider`, `phone`, `text`, `status` (`DeliveryStatus` enum), `successful`, `providerMessageId`, `errorMessage`, `raw` (the provider response, for debugging).
+`SentMessage` fields: `provider`, `phone`, `text`, `status` (`DeliveryStatus` enum), `successful`, `providerMessageId`, `errorMessage`, `raw` (the provider response, for debugging), `fallbackFrom` (the primary provider whose failed attempt this result replaced — `null` unless a fallback ran, see [Fallback provider](#fallback-provider)), `debug` (HTTP trace of the send — `null` unless enabled, see [Debug mode](#debug-mode)).
 
 The only exceptions you will ever see are configuration errors at resolution time — see below.
 
@@ -345,7 +347,7 @@ $message = sms('eskiz')
     ->send();
 ```
 
-The primary sends once. If it returns an unsuccessful `SentMessage`, the fallback sends once and its result is returned. A successful primary never contacts the fallback. Pass a predicate to decide for yourself:
+The primary sends once. If it returns an unsuccessful `SentMessage`, the fallback sends once and its result is returned with `fallbackFrom` set to the primary's name (`'eskiz'` here) — so a result whose `provider` differs from the facade or helper you called is always explained by a non-null `fallbackFrom`. A successful primary never contacts the fallback and leaves `fallbackFrom` as `null`. Pass a predicate to decide for yourself:
 
 ```php
 ->useFallback('playmobile', fn (SentMessage $sent) => $sent->status === DeliveryStatus::Failed)
@@ -370,7 +372,7 @@ $results = sms('sayqal')->many($messages)->useFallback('eskiz')->send();
 $results = sms('sayqal')->sendMany($messages, fallback: 'eskiz', fallbackWhen: fn (SentMessage $m) => ! $m->successful);
 ```
 
-Both drive the exact same call — `many($messages)->useFallback(...)->send()` just collects the arguments and calls `sendMany($messages, $fallback, $fallbackWhen)` for you. The default predicate is "not successful"; pass your own `fallbackWhen` to decide differently. Only the messages that match are collected and re-sent as one batch through the fallback provider; the returned `Collection` keeps every recipient in their original position, whichever provider's result ended up there.
+Both drive the exact same call — `many($messages)->useFallback(...)->send()` just collects the arguments and calls `sendMany($messages, $fallback, $fallbackWhen)` for you. The default predicate is "not successful"; pass your own `fallbackWhen` to decide differently. Only the messages that match are collected and re-sent as one batch through the fallback provider; the returned `Collection` keeps every recipient in their original position, whichever provider's result ended up there. Entries that went through the fallback carry `fallbackFrom` with the primary provider's name; untouched entries keep it `null`.
 
 Not every driver can be trusted with a partial retry — it needs to report *which individual message* failed, not just an all-or-nothing batch result. `Uzbek\Sms\Contracts\SupportsBulkFallback` is the marker interface that says a driver's `sendMany()` qualifies (either it sends one HTTP request per message under the hood, or its native batch endpoint reports success per item). Only `SayqalDriver` implements it today; `EskizDriver`, `PlayMobileDriver` and `TextUpDriver` do not. Passing `fallback` to one of those is a no-op — the primary results come back untouched — and a warning is logged (`SMS provider [x] does not support bulk fallback; returning primary results ...`). Set `SMS_SILENT=true` (`sms.silent`) to suppress that warning project-wide, e.g. if you deliberately pass a fallback to every provider regardless of support.
 
@@ -454,6 +456,59 @@ $results[1]->successful;   // false
 $results[1]->errorMessage; // "Phone [+998971111111] matches blocked prefix [99897]. ..."
 ```
 
+## Fake mode
+
+For local development and staging: sends look completely real — same `SentMessage`, same `SmsSent` events, same database/debug logging, same fallback behavior — but no HTTP call ever leaves the machine (not even auth). Controlled by env only:
+
+```dotenv
+SMS_FAKE=true
+SMS_FAKE_SUCCESS_RATE=0.7   # optional; default 1.0
+```
+
+```php
+$message = sms('textup')->to('+998901234567')->text('Salom')->send();
+
+$message->successful;         // true (or false, by the success-rate roll)
+$message->providerMessageId;  // "fake-01KX..."
+$message->raw;                // ['fake' => true]
+```
+
+`success_rate` is a probability from 0 to 1 applied per message: `1.0` (default) — every send succeeds; `0.7` — roughly 70% succeed; `0` — every send fails with `errorMessage` `"Simulated failure (fake mode)."`. A blank value counts as unset; anything non-numeric or outside 0..1 (say, `90` meant as a percentage) falls back to `1.0` and logs a warning (suppressed by `SMS_SILENT`). A faked failure drives the normal pipeline: fallback providers kick in (and roll the same rate themselves), `fallbackFrom` gets set, failed sends are logged — so you can rehearse your error handling end-to-end without a provider account.
+
+Still real in fake mode: recipient prefix rules (a blocked number is rejected as usual, not rolled), events, logging, the resend guard. Not faked: `checkStatus()` — it would hit the real API, and fake message ids don't exist there.
+
+## Debug mode
+
+When a send misbehaves — wrong provider answering, silent fallback, auth mysteriously failing — turn on debug for that one send and inspect exactly what went over the wire:
+
+```php
+$message = sms('textup')
+    ->to('+998901234567')
+    ->text('Salom')
+    ->debug()
+    ->send();
+
+$message->debug;
+// [
+//   ['type' => 'request', 'method' => 'POST', 'url' => 'https://api-auth.textup.uz/v1/login',
+//    'request' => ['email' => 'a@b.uz', 'password' => '••••••'], 'status' => 200,
+//    'response' => ['accessToken' => '••••••', ...], 'duration_ms' => 182],
+//   ['type' => 'request', 'method' => 'POST', 'url' => 'https://sms-api.textup.uz/v1/send', ...],
+// ]
+```
+
+Code-only by design: there is no config key or env var, so debug can't be left on in production by accident. `debug()` exists on both builders — `to()->...->debug()->send()` and `many()->...->debug()->send()`.
+
+What lands in the trace:
+
+- **Every HTTP exchange** during the send — auth/login calls, the send itself, and any fallback provider's traffic — as `request` entries: `method`, `url`, `request` body, `status`, `response` body, `duration_ms`. Network-level failures appear as `connection_failed` entries.
+- **Fallback decisions** as `['type' => 'fallback', 'from' => 'textup', 'to' => 'playmobile']` entries, in order between the two providers' exchanges.
+- **Failed final results** as `exception` entries carrying the provider, phone, and `errorMessage` — one per failed message on bulk sends.
+
+Credentials are always redacted (`password`, `secret_key`, `token`, `accessToken` → `••••••`), request/response bodies included; headers are not captured at all. A non-JSON response body is stored verbatim — unless the request carried credentials (a login call), in which case the whole body is masked since it is likely a raw token. With debug off (the default) `SentMessage->debug` stays `null` and nothing is collected — zero overhead.
+
+Bulk note: batch HTTP requests cover many recipients at once, so every `SentMessage` in a bulk result carries the *whole* send's trace, not a per-message slice.
+
 ## Logging
 
 Events always fire; both logging channels are optional listeners layered on top.
@@ -520,6 +575,8 @@ Event::listen(DeliveryStatusUpdated::class, function (DeliveryStatusUpdated $eve
 ```
 
 `SmsSent` fires exactly once per message — successes and failures, single and bulk alike.
+
+Timing caveat: the event fires inside the driver, before the pending layer stamps `fallbackFrom` and `debug` on the returned `SentMessage` — listeners always see those two fields as `null`. Fallback attribution is still reconstructible from the log: a failed primary attempt and its fallback's send each fire their own event and write their own row.
 
 ## Webhooks
 

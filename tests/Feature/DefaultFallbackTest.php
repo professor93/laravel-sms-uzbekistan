@@ -24,7 +24,8 @@ it('auto-applies the provider-configured default fallback on a single send', fun
     $result = sms('eskiz')->to('+998901234567')->text('Salom')->send();
 
     expect($result->successful)->toBeTrue()
-        ->and($result->provider)->toBe('sayqal');
+        ->and($result->provider)->toBe('sayqal')
+        ->and($result->fallbackFrom)->toBe('eskiz');
 });
 
 it('lets an explicit useFallback override the configured default', function () {

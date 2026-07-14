@@ -8,6 +8,19 @@ return [
 
     'silent' => (bool) env('SMS_SILENT', false),
 
+    /*
+     | Fake mode: sends succeed (or fail, see success_rate) without any HTTP
+     | call leaving the machine — no auth, no provider traffic. Intended for
+     | local development and staging. success_rate is a probability from 0
+     | to 1: 1 (default) = every send succeeds, 0.7 = ~70% succeed, 0 = every
+     | send fails with a simulated error. A blank or invalid value falls back
+     | to 1 (a warning is logged for invalid values unless sms.silent is on).
+     */
+    'fake' => [
+        'enabled' => (bool) env('SMS_FAKE', false),
+        'success_rate' => env('SMS_FAKE_SUCCESS_RATE', 1.0),
+    ],
+
     'webhook' => [
         'enabled' => (bool) env('SMS_WEBHOOK_ENABLED', false),
         'path' => env('SMS_WEBHOOK_PATH', 'sms/webhooks'),

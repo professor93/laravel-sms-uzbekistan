@@ -34,8 +34,10 @@ it('re-sends only the failed bulk messages through the fallback provider', funct
     expect($results)->toHaveCount(2)
         ->and($results->get(0)->provider)->toBe('sayqal')
         ->and($results->get(0)->successful)->toBeTrue()
+        ->and($results->get(0)->fallbackFrom)->toBeNull()
         ->and($results->get(1)->provider)->toBe('eskiz')
-        ->and($results->get(1)->successful)->toBeTrue();
+        ->and($results->get(1)->successful)->toBeTrue()
+        ->and($results->get(1)->fallbackFrom)->toBe('sayqal');
 });
 
 it('honors a custom when predicate, re-sending even successful messages', function () {

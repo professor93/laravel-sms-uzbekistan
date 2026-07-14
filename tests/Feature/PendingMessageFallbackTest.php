@@ -55,7 +55,8 @@ it('falls back to the secondary provider when the primary fails', function () {
     $result = sms('eskiz')->to('+998 90 123 45 67')->text('Salom')->useFallback('playmobile')->send();
 
     expect($result->successful)->toBeTrue()
-        ->and($result->provider)->toBe('playmobile');
+        ->and($result->provider)->toBe('playmobile')
+        ->and($result->fallbackFrom)->toBe('eskiz');
 
     Event::assertDispatchedTimes(SmsSent::class, 2);
 });
@@ -72,7 +73,8 @@ it('does not contact the fallback when the primary succeeds', function () {
     $result = sms('eskiz')->to('+998901234567')->text('Salom')->useFallback('playmobile')->send();
 
     expect($result->successful)->toBeTrue()
-        ->and($result->provider)->toBe('eskiz');
+        ->and($result->provider)->toBe('eskiz')
+        ->and($result->fallbackFrom)->toBeNull();
 
     Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), 'smsxabar.uz'));
     Event::assertDispatchedTimes(SmsSent::class, 1);
@@ -129,7 +131,8 @@ it('returns the fallback failed result when both providers fail', function () {
     $result = sms('eskiz')->to('+998901234567')->text('Salom')->useFallback('playmobile')->send();
 
     expect($result->successful)->toBeFalse()
-        ->and($result->provider)->toBe('playmobile');
+        ->and($result->provider)->toBe('playmobile')
+        ->and($result->fallbackFrom)->toBe('eskiz');
 });
 
 it('does not leak primary overrides to the fallback', function () {
