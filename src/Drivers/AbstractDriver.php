@@ -127,7 +127,10 @@ abstract class AbstractDriver implements Driver
         $merged = $primary->all();
 
         $retryKeys->each(function (int $originalIndex, int $position) use (&$merged, $fallbackResults): void {
-            $merged[$originalIndex] = $fallbackResults->get($position);
+            $retried = $fallbackResults->get($position);
+            $retried->fallbackFrom = $this->name();
+
+            $merged[$originalIndex] = $retried;
         });
 
         return Collection::make($merged)->values();

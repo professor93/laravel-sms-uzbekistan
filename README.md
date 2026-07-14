@@ -264,7 +264,7 @@ foreach ($results as $message) {
 $results->where('successful', false)->count(); // failed recipients
 ```
 
-`SentMessage` fields: `provider`, `phone`, `text`, `status` (`DeliveryStatus` enum), `successful`, `providerMessageId`, `errorMessage`, `raw` (the provider response, for debugging).
+`SentMessage` fields: `provider`, `phone`, `text`, `status` (`DeliveryStatus` enum), `successful`, `providerMessageId`, `errorMessage`, `raw` (the provider response, for debugging), `fallbackFrom` (the primary provider whose failed attempt this result replaced — `null` unless a fallback ran, see [Fallback provider](#fallback-provider)).
 
 The only exceptions you will ever see are configuration errors at resolution time — see below.
 
@@ -345,7 +345,7 @@ $message = sms('eskiz')
     ->send();
 ```
 
-The primary sends once. If it returns an unsuccessful `SentMessage`, the fallback sends once and its result is returned. A successful primary never contacts the fallback. Pass a predicate to decide for yourself:
+The primary sends once. If it returns an unsuccessful `SentMessage`, the fallback sends once and its result is returned with `fallbackFrom` set to the primary's name (`'eskiz'` here) — so a result whose `provider` differs from the facade or helper you called is always explained by a non-null `fallbackFrom`. A successful primary never contacts the fallback and leaves `fallbackFrom` as `null`. Pass a predicate to decide for yourself:
 
 ```php
 ->useFallback('playmobile', fn (SentMessage $sent) => $sent->status === DeliveryStatus::Failed)
@@ -370,7 +370,7 @@ $results = sms('sayqal')->many($messages)->useFallback('eskiz')->send();
 $results = sms('sayqal')->sendMany($messages, fallback: 'eskiz', fallbackWhen: fn (SentMessage $m) => ! $m->successful);
 ```
 
-Both drive the exact same call — `many($messages)->useFallback(...)->send()` just collects the arguments and calls `sendMany($messages, $fallback, $fallbackWhen)` for you. The default predicate is "not successful"; pass your own `fallbackWhen` to decide differently. Only the messages that match are collected and re-sent as one batch through the fallback provider; the returned `Collection` keeps every recipient in their original position, whichever provider's result ended up there.
+Both drive the exact same call — `many($messages)->useFallback(...)->send()` just collects the arguments and calls `sendMany($messages, $fallback, $fallbackWhen)` for you. The default predicate is "not successful"; pass your own `fallbackWhen` to decide differently. Only the messages that match are collected and re-sent as one batch through the fallback provider; the returned `Collection` keeps every recipient in their original position, whichever provider's result ended up there. Entries that went through the fallback carry `fallbackFrom` with the primary provider's name; untouched entries keep it `null`.
 
 Not every driver can be trusted with a partial retry — it needs to report *which individual message* failed, not just an all-or-nothing batch result. `Uzbek\Sms\Contracts\SupportsBulkFallback` is the marker interface that says a driver's `sendMany()` qualifies (either it sends one HTTP request per message under the hood, or its native batch endpoint reports success per item). Only `SayqalDriver` implements it today; `EskizDriver`, `PlayMobileDriver` and `TextUpDriver` do not. Passing `fallback` to one of those is a no-op — the primary results come back untouched — and a warning is logged (`SMS provider [x] does not support bulk fallback; returning primary results ...`). Set `SMS_SILENT=true` (`sms.silent`) to suppress that warning project-wide, e.g. if you deliberately pass a fallback to every provider regardless of support.
 

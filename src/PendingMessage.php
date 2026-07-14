@@ -116,7 +116,10 @@ final class PendingMessage
         $result = $this->primary()->send($this->phone, $this->text);
 
         if ($fallback !== null && $this->shouldFallback($result)) {
-            return app(DriverFactory::class)->make($fallback)->send($this->phone, $this->text);
+            $retried = app(DriverFactory::class)->make($fallback)->send($this->phone, $this->text);
+            $retried->fallbackFrom = $result->provider;
+
+            return $retried;
         }
 
         return $result;

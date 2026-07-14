@@ -11,6 +11,7 @@ final class SentMessage extends Data
 {
     /**
      * @param  array<array-key, mixed>  $raw
+     * @param  string|null  $fallbackFrom  primary provider whose failed attempt this message replaced
      */
     public function __construct(
         public string $provider,
@@ -21,6 +22,7 @@ final class SentMessage extends Data
         public ?string $providerMessageId = null,
         public ?string $errorMessage = null,
         public array $raw = [],
+        public ?string $fallbackFrom = null,
     ) {}
 
     /**
