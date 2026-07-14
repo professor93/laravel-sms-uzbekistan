@@ -28,8 +28,7 @@ final class DebugCollector
     /** @var list<array<string, mixed>> */
     private array $entries = [];
 
-    /** @var array<int, float> */
-    private array $startedAt = [];
+    private ?float $requestStartedAt = null;
 
     public function __construct(private readonly Dispatcher $events) {}
 
@@ -38,11 +37,18 @@ final class DebugCollector
      */
     public function capture(Closure $callback): array
     {
+        // A capture inside a capture (an SmsSent listener sending its own
+        // debug message) must not clobber the outer window: the inner send
+        // gets no trace of its own and its traffic lands in the outer trace.
+        if ($this->active) {
+            return [$callback(), []];
+        }
+
         $this->listen();
 
         $this->active = true;
         $this->entries = [];
-        $this->startedAt = [];
+        $this->requestStartedAt = null;
 
         try {
             $result = $callback();
@@ -50,7 +56,7 @@ final class DebugCollector
             $entries = $this->entries;
             $this->active = false;
             $this->entries = [];
-            $this->startedAt = [];
+            $this->requestStartedAt = null;
         }
 
         return [$result, $entries];
@@ -76,9 +82,11 @@ final class DebugCollector
 
         $this->listening = true;
 
+        // Execution inside a window is synchronous, so at most one request is
+        // ever in flight — a single timestamp is enough for duration_ms.
         $this->events->listen(RequestSending::class, function (RequestSending $event): void {
             if ($this->active) {
-                $this->startedAt[spl_object_id($event->request)] = microtime(true);
+                $this->requestStartedAt = microtime(true);
             }
         });
 
@@ -87,19 +95,19 @@ final class DebugCollector
                 return;
             }
 
-            $id = spl_object_id($event->request);
-            $started = $this->startedAt[$id] ?? null;
-            unset($this->startedAt[$id]);
+            $started = $this->requestStartedAt;
+            $this->requestStartedAt = null;
 
+            $request = $this->redact((array) $event->request->data());
             $json = $event->response->json();
 
             $this->record([
                 'type' => 'request',
                 'method' => $event->request->method(),
                 'url' => $event->request->url(),
-                'request' => $this->redact((array) $event->request->data()),
+                'request' => $request,
                 'status' => $event->response->status(),
-                'response' => is_array($json) ? $this->redact($json) : $event->response->body(),
+                'response' => $this->redactedResponse($json, $event->response->body(), $request),
                 'duration_ms' => $started !== null ? (int) round((microtime(true) - $started) * 1000) : null,
             ]);
         });
@@ -109,7 +117,7 @@ final class DebugCollector
                 return;
             }
 
-            unset($this->startedAt[spl_object_id($event->request)]);
+            $this->requestStartedAt = null;
 
             $this->record([
                 'type' => 'connection_failed',
@@ -118,6 +126,37 @@ final class DebugCollector
                 'error' => $event->exception->getMessage(),
             ]);
         });
+    }
+
+    /**
+     * A non-array body can't be key-redacted; when the request carried
+     * credentials (a login call) the body is likely a raw token, so blank it
+     * whole rather than leak it. `$request` is already redacted, so sensitive
+     * keys are detected by their masked value.
+     *
+     * @param  array<array-key, mixed>  $request
+     */
+    private function redactedResponse(mixed $json, string $body, array $request): mixed
+    {
+        if (is_array($json)) {
+            return $this->redact($json);
+        }
+
+        return $this->containsRedactedValue($request) ? self::REDACTED : $body;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $data
+     */
+    private function containsRedactedValue(array $data): bool
+    {
+        foreach ($data as $value) {
+            if ($value === self::REDACTED || (is_array($value) && $this->containsRedactedValue($value))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

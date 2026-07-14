@@ -43,7 +43,9 @@ abstract class AbstractDriver implements Driver
         try {
             $this->guardPhone($phone);
 
-            $message = $this->faking() ? $this->fakeResult($phone, $text) : $this->doSend($phone, $text);
+            $message = $this->faking()
+                ? $this->fakeResult($phone, $text, $this->fakeSuccessRate(), app(DebugCollector::class))
+                : $this->doSend($phone, $text);
         } catch (Throwable $e) {
             $message = SentMessage::failed($this->name(), $phone, $text, $e->getMessage());
         }
@@ -141,9 +143,14 @@ abstract class AbstractDriver implements Driver
 
         $retryKeys->each(function (int $originalIndex, int $position) use (&$merged, $fallbackResults): void {
             $retried = $fallbackResults->get($position);
-            $retried->fallbackFrom = $this->name();
 
-            $merged[$originalIndex] = $retried;
+            // A custom fallback driver may return fewer results than asked —
+            // keep the primary failure rather than dereferencing null.
+            if ($retried instanceof SentMessage) {
+                $retried->fallbackFrom = $this->name();
+
+                $merged[$originalIndex] = $retried;
+            }
         });
 
         return Collection::make($merged)->values();
@@ -154,14 +161,41 @@ abstract class AbstractDriver implements Driver
         return (bool) config('sms.fake.enabled');
     }
 
+    // Blank counts as unset; anything else outside 0..1 (e.g. "90" meant as
+    // a percentage) is a misconfiguration — warn and use the default.
+    private function fakeSuccessRate(): float
+    {
+        $rate = config('sms.fake.success_rate', 1.0);
+
+        if ($rate === null || $rate === '') {
+            return 1.0;
+        }
+
+        if (! is_numeric($rate) || (float) $rate < 0.0 || (float) $rate > 1.0) {
+            if (! config('sms.silent')) {
+                Log::channel(config('sms.logging.channel'))->warning(sprintf(
+                    'Invalid sms.fake.success_rate [%s]; expected a probability between 0 and 1, using 1.0.',
+                    is_scalar($rate) ? (string) $rate : gettype($rate),
+                ));
+            }
+
+            return 1.0;
+        }
+
+        return (float) $rate;
+    }
+
     /**
      * @param  Collection<int, OutboundMessage>  $messages
      * @return Collection<int, SentMessage>
      */
     private function fakeSendMany(Collection $messages): Collection
     {
-        return $messages->map(function (OutboundMessage $message): SentMessage {
-            $result = $this->fakeResult($message->phone, $message->text);
+        $rate = $this->fakeSuccessRate();
+        $collector = app(DebugCollector::class);
+
+        return $messages->map(function (OutboundMessage $message) use ($rate, $collector): SentMessage {
+            $result = $this->fakeResult($message->phone, $message->text, $rate, $collector);
 
             $this->dispatchSent($result);
 
@@ -169,12 +203,11 @@ abstract class AbstractDriver implements Driver
         });
     }
 
-    private function fakeResult(string $phone, string $text): SentMessage
+    private function fakeResult(string $phone, string $text, float $rate, DebugCollector $collector): SentMessage
     {
-        $rate = (float) config('sms.fake.success_rate', 1.0);
         $successful = $rate >= 1.0 || (mt_rand() / mt_getrandmax()) < $rate;
 
-        app(DebugCollector::class)->record([
+        $collector->record([
             'type' => 'fake',
             'provider' => $this->name(),
             'phone' => $phone,

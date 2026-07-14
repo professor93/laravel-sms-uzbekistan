@@ -4,31 +4,22 @@ declare(strict_types=1);
 
 namespace Uzbek\Sms;
 
-use Closure;
 use LogicException;
+use Uzbek\Sms\Concerns\HasSendOptions;
 use Uzbek\Sms\Contracts\Driver;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Debug\DebugCollector;
 
 final class PendingMessage
 {
+    use HasSendOptions;
+
     private ?string $phone = null;
 
     private ?string $text = null;
 
     /** @var array<string, mixed> */
     private array $overrides = [];
-
-    private ?string $fallback = null;
-
-    private bool $fallbackDisabled = false;
-
-    private bool $debug = false;
-
-    private bool $sent = false;
-
-    /** @var Closure(SentMessage): bool|null */
-    private ?Closure $fallbackWhen = null;
 
     public function __construct(private readonly Driver $driver) {}
 
@@ -88,31 +79,6 @@ final class PendingMessage
         return $this->as($credentials);
     }
 
-    /**
-     * @param  Closure(SentMessage): bool|null  $when
-     */
-    public function useFallback(string $provider, ?Closure $when = null): self
-    {
-        $this->fallback = $provider;
-        $this->fallbackWhen = $when;
-
-        return $this;
-    }
-
-    public function withoutFallback(): self
-    {
-        $this->fallbackDisabled = true;
-
-        return $this;
-    }
-
-    public function debug(bool $debug = true): self
-    {
-        $this->debug = $debug;
-
-        return $this;
-    }
-
     public function send(): SentMessage
     {
         if ($this->sent) {
@@ -127,18 +93,22 @@ final class PendingMessage
             throw new LogicException('No text set. Call text() before send().');
         }
 
+        // Resolving the primary can throw for a disabled/unknown override
+        // driver — a config error, so the builder must stay reusable.
+        $primary = $this->primary();
+
         $this->sent = true;
 
         if (! $this->debug) {
-            return $this->deliver(null);
+            return $this->deliver($primary, null);
         }
 
         $collector = app(DebugCollector::class);
 
-        [$result, $entries] = $collector->capture(fn (): SentMessage => $this->deliver($collector));
+        [$result, $entries] = $collector->capture(fn (): SentMessage => $this->deliver($primary, $collector));
 
         if (! $result->successful) {
-            $entries[] = ['type' => 'exception', 'provider' => $result->provider, 'message' => $result->errorMessage];
+            $entries[] = ['type' => 'exception', 'provider' => $result->provider, 'phone' => $result->phone, 'message' => $result->errorMessage];
         }
 
         $result->debug = $entries;
@@ -146,11 +116,11 @@ final class PendingMessage
         return $result;
     }
 
-    private function deliver(?DebugCollector $collector): SentMessage
+    private function deliver(Driver $primary, ?DebugCollector $collector): SentMessage
     {
         $fallback = $this->effectiveFallback();
 
-        $result = $this->primary()->send($this->phone, $this->text);
+        $result = $primary->send($this->phone, $this->text);
 
         if ($fallback !== null && $this->shouldFallback($result)) {
             $collector?->record(['type' => 'fallback', 'from' => $result->provider, 'to' => $fallback]);
@@ -178,14 +148,5 @@ final class PendingMessage
         return $this->fallbackWhen !== null
             ? ($this->fallbackWhen)($result)
             : ! $result->successful;
-    }
-
-    private function effectiveFallback(): ?string
-    {
-        if ($this->fallbackDisabled) {
-            return null;
-        }
-
-        return $this->fallback ?? $this->driver->defaultFallback();
     }
 }

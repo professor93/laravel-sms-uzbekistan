@@ -473,7 +473,7 @@ $message->providerMessageId;  // "fake-01KX..."
 $message->raw;                // ['fake' => true]
 ```
 
-`success_rate` is a probability from 0 to 1 applied per message: `1.0` (default) — every send succeeds; `0.7` — roughly 70% succeed; `0` — every send fails with `errorMessage` `"Simulated failure (fake mode)."`. A faked failure drives the normal pipeline: fallback providers kick in (and roll the same rate themselves), `fallbackFrom` gets set, failed sends are logged — so you can rehearse your error handling end-to-end without a provider account.
+`success_rate` is a probability from 0 to 1 applied per message: `1.0` (default) — every send succeeds; `0.7` — roughly 70% succeed; `0` — every send fails with `errorMessage` `"Simulated failure (fake mode)."`. A blank value counts as unset; anything non-numeric or outside 0..1 (say, `90` meant as a percentage) falls back to `1.0` and logs a warning (suppressed by `SMS_SILENT`). A faked failure drives the normal pipeline: fallback providers kick in (and roll the same rate themselves), `fallbackFrom` gets set, failed sends are logged — so you can rehearse your error handling end-to-end without a provider account.
 
 Still real in fake mode: recipient prefix rules (a blocked number is rejected as usual, not rolled), events, logging, the resend guard. Not faked: `checkStatus()` — it would hit the real API, and fake message ids don't exist there.
 
@@ -503,9 +503,9 @@ What lands in the trace:
 
 - **Every HTTP exchange** during the send — auth/login calls, the send itself, and any fallback provider's traffic — as `request` entries: `method`, `url`, `request` body, `status`, `response` body, `duration_ms`. Network-level failures appear as `connection_failed` entries.
 - **Fallback decisions** as `['type' => 'fallback', 'from' => 'textup', 'to' => 'playmobile']` entries, in order between the two providers' exchanges.
-- **The final failure**, when the result is unsuccessful, as an `exception` entry carrying `errorMessage`.
+- **Failed final results** as `exception` entries carrying the provider, phone, and `errorMessage` — one per failed message on bulk sends.
 
-Credentials are always redacted (`password`, `secret_key`, `token`, `accessToken` → `••••••`), request/response bodies included; headers are not captured at all. With debug off (the default) `SentMessage->debug` stays `null` and nothing is collected — zero overhead.
+Credentials are always redacted (`password`, `secret_key`, `token`, `accessToken` → `••••••`), request/response bodies included; headers are not captured at all. A non-JSON response body is stored verbatim — unless the request carried credentials (a login call), in which case the whole body is masked since it is likely a raw token. With debug off (the default) `SentMessage->debug` stays `null` and nothing is collected — zero overhead.
 
 Bulk note: batch HTTP requests cover many recipients at once, so every `SentMessage` in a bulk result carries the *whole* send's trace, not a per-message slice.
 
@@ -575,6 +575,8 @@ Event::listen(DeliveryStatusUpdated::class, function (DeliveryStatusUpdated $eve
 ```
 
 `SmsSent` fires exactly once per message — successes and failures, single and bulk alike.
+
+Timing caveat: the event fires inside the driver, before the pending layer stamps `fallbackFrom` and `debug` on the returned `SentMessage` — listeners always see those two fields as `null`. Fallback attribution is still reconstructible from the log: a failed primary attempt and its fallback's send each fire their own event and write their own row.
 
 ## Webhooks
 

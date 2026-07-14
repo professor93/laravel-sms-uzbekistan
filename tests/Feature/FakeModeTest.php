@@ -26,6 +26,25 @@ it('reports success without any HTTP call by default', function () {
     Http::assertNothingSent();
 });
 
+it('treats a blank success rate as the default of 1.0', function () {
+    config()->set('sms.fake.success_rate', '');
+
+    $result = sms('textup')->to('+998901234567')->text('Salom')->send();
+
+    expect($result->successful)->toBeTrue();
+
+    Http::assertNothingSent();
+});
+
+it('falls back to 1.0 for a non-numeric or out-of-range success rate', function (mixed $rate) {
+    config()->set('sms.silent', true);
+    config()->set('sms.fake.success_rate', $rate);
+
+    $result = sms('textup')->to('+998901234567')->text('Salom')->withoutFallback()->send();
+
+    expect($result->successful)->toBeTrue();
+})->with(['high', 90, -0.5]);
+
 it('always fails when the success rate is zero', function () {
     config()->set('sms.fake.success_rate', 0);
 

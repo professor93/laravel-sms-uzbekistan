@@ -2,16 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Sms\Data\OutboundMessage;
-
-function fakeTextUpSuccess(): void
-{
-    Http::fake([
-        'api-auth.textup.uz/v1/login' => Http::response(['accessToken' => 'jwt-secret', 'user' => ['id' => 'u1']]),
-        'sms-api.textup.uz/v1/send' => Http::response(['smsId' => 'sms-1']),
-    ]);
-}
+use Uzbek\Sms\Events\SmsSent;
 
 it('leaves debug null when not enabled', function () {
     fakeTextUpSuccess();
@@ -104,6 +98,43 @@ it('attaches the same trace to every bulk result', function () {
     expect($results->get(0)->debug)->toBeArray()
         ->and($results->get(0)->debug)->toBe($results->get(1)->debug)
         ->and(collect($results->get(0)->debug)->where('type', 'request'))->toHaveCount(2);
+});
+
+it('appends exception entries for failed bulk messages', function () {
+    config()->set('sms.providers.sayqal.prefixes', ['blocked' => ['99899']]);
+
+    Http::fake([
+        'routee.sayqal.uz/sms/TransmitSMS' => Http::response(['transactionid' => 7]),
+    ]);
+
+    $messages = OutboundMessage::sameText(['+998901111111', '+998998990000'], 'Salom');
+
+    $results = sms('sayqal')->many($messages)->debug()->send();
+
+    $exceptions = collect($results->get(0)->debug)->where('type', 'exception')->values();
+
+    expect($exceptions)->toHaveCount(1)
+        ->and($exceptions->get(0)['provider'])->toBe('sayqal')
+        ->and($exceptions->get(0)['phone'])->toBe('+998998990000');
+});
+
+it('keeps the outer debug window when a listener sends its own debug message', function () {
+    config()->set('sms.fake.enabled', true);
+
+    Event::listen(SmsSent::class, function (): void {
+        static $ran = false;
+
+        if (! $ran) {
+            $ran = true;
+            sms('playmobile')->to('+998907777777')->text('audit')->debug()->send();
+        }
+    });
+
+    $result = sms('textup')->to('+998901234567')->text('Salom')->debug()->send();
+
+    $fakes = collect($result->debug)->where('type', 'fake')->values();
+
+    expect($fakes->pluck('provider')->all())->toBe(['textup', 'playmobile']);
 });
 
 it('records bulk fallback decisions in the trace', function () {
