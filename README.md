@@ -456,6 +456,27 @@ $results[1]->successful;   // false
 $results[1]->errorMessage; // "Phone [+998971111111] matches blocked prefix [99897]. ..."
 ```
 
+## Fake mode
+
+For local development and staging: sends look completely real — same `SentMessage`, same `SmsSent` events, same database/debug logging, same fallback behavior — but no HTTP call ever leaves the machine (not even auth). Controlled by env only:
+
+```dotenv
+SMS_FAKE=true
+SMS_FAKE_SUCCESS_RATE=0.7   # optional; default 1.0
+```
+
+```php
+$message = sms('textup')->to('+998901234567')->text('Salom')->send();
+
+$message->successful;         // true (or false, by the success-rate roll)
+$message->providerMessageId;  // "fake-01KX..."
+$message->raw;                // ['fake' => true]
+```
+
+`success_rate` is a probability from 0 to 1 applied per message: `1.0` (default) — every send succeeds; `0.7` — roughly 70% succeed; `0` — every send fails with `errorMessage` `"Simulated failure (fake mode)."`. A faked failure drives the normal pipeline: fallback providers kick in (and roll the same rate themselves), `fallbackFrom` gets set, failed sends are logged — so you can rehearse your error handling end-to-end without a provider account.
+
+Still real in fake mode: recipient prefix rules (a blocked number is rejected as usual, not rolled), events, logging, the resend guard. Not faked: `checkStatus()` — it would hit the real API, and fake message ids don't exist there.
+
 ## Debug mode
 
 When a send misbehaves — wrong provider answering, silent fallback, auth mysteriously failing — turn on debug for that one send and inspect exactly what went over the wire:
