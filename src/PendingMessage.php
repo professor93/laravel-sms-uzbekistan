@@ -8,6 +8,7 @@ use Closure;
 use LogicException;
 use Uzbek\Sms\Contracts\Driver;
 use Uzbek\Sms\Data\SentMessage;
+use Uzbek\Sms\Debug\DebugCollector;
 
 final class PendingMessage
 {
@@ -21,6 +22,10 @@ final class PendingMessage
     private ?string $fallback = null;
 
     private bool $fallbackDisabled = false;
+
+    private bool $debug = false;
+
+    private bool $sent = false;
 
     /** @var Closure(SentMessage): bool|null */
     private ?Closure $fallbackWhen = null;
@@ -101,8 +106,19 @@ final class PendingMessage
         return $this;
     }
 
+    public function debug(bool $debug = true): self
+    {
+        $this->debug = $debug;
+
+        return $this;
+    }
+
     public function send(): SentMessage
     {
+        if ($this->sent) {
+            throw new LogicException('Message already sent. Build a new message for each send.');
+        }
+
         if ($this->phone === null || $this->phone === '') {
             throw new LogicException('No recipient set. Call to() before send().');
         }
@@ -111,11 +127,34 @@ final class PendingMessage
             throw new LogicException('No text set. Call text() before send().');
         }
 
+        $this->sent = true;
+
+        if (! $this->debug) {
+            return $this->deliver(null);
+        }
+
+        $collector = app(DebugCollector::class);
+
+        [$result, $entries] = $collector->capture(fn (): SentMessage => $this->deliver($collector));
+
+        if (! $result->successful) {
+            $entries[] = ['type' => 'exception', 'provider' => $result->provider, 'message' => $result->errorMessage];
+        }
+
+        $result->debug = $entries;
+
+        return $result;
+    }
+
+    private function deliver(?DebugCollector $collector): SentMessage
+    {
         $fallback = $this->effectiveFallback();
 
         $result = $this->primary()->send($this->phone, $this->text);
 
         if ($fallback !== null && $this->shouldFallback($result)) {
+            $collector?->record(['type' => 'fallback', 'from' => $result->provider, 'to' => $fallback]);
+
             $retried = app(DriverFactory::class)->make($fallback)->send($this->phone, $this->text);
             $retried->fallbackFrom = $result->provider;
 

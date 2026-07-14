@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 use Uzbek\Sms\Contracts\Authenticator;
 use Uzbek\Sms\Contracts\Driver;
+use Uzbek\Sms\Debug\DebugCollector;
 use Uzbek\Sms\Contracts\SupportsBulkFallback;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
@@ -121,6 +122,13 @@ abstract class AbstractDriver implements Driver
         }
 
         $retryMessages = $retryKeys->map(fn (int $index): OutboundMessage => $messages->get($index))->values();
+
+        app(DebugCollector::class)->record([
+            'type' => 'fallback',
+            'from' => $this->name(),
+            'to' => $fallback,
+            'messages' => $retryKeys->count(),
+        ]);
 
         $fallbackResults = app(DriverFactory::class)->make($fallback)->sendMany($retryMessages);
 

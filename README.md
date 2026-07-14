@@ -170,6 +170,8 @@ sms('textup')
     ->send();
 ```
 
+A builder is single-use: calling `send()` a second time on the same `PendingMessage` (or bulk `many()` builder) throws a `LogicException` instead of sending the SMS again. Build a new message for each send. A validation failure (missing `to()`/`text()`) does *not* burn the builder — fix it and `send()` again.
+
 ### Direct
 
 ```php
@@ -264,7 +266,7 @@ foreach ($results as $message) {
 $results->where('successful', false)->count(); // failed recipients
 ```
 
-`SentMessage` fields: `provider`, `phone`, `text`, `status` (`DeliveryStatus` enum), `successful`, `providerMessageId`, `errorMessage`, `raw` (the provider response, for debugging), `fallbackFrom` (the primary provider whose failed attempt this result replaced — `null` unless a fallback ran, see [Fallback provider](#fallback-provider)).
+`SentMessage` fields: `provider`, `phone`, `text`, `status` (`DeliveryStatus` enum), `successful`, `providerMessageId`, `errorMessage`, `raw` (the provider response, for debugging), `fallbackFrom` (the primary provider whose failed attempt this result replaced — `null` unless a fallback ran, see [Fallback provider](#fallback-provider)), `debug` (HTTP trace of the send — `null` unless enabled, see [Debug mode](#debug-mode)).
 
 The only exceptions you will ever see are configuration errors at resolution time — see below.
 
@@ -453,6 +455,38 @@ $results[0]->successful;   // true — sent as usual
 $results[1]->successful;   // false
 $results[1]->errorMessage; // "Phone [+998971111111] matches blocked prefix [99897]. ..."
 ```
+
+## Debug mode
+
+When a send misbehaves — wrong provider answering, silent fallback, auth mysteriously failing — turn on debug for that one send and inspect exactly what went over the wire:
+
+```php
+$message = sms('textup')
+    ->to('+998901234567')
+    ->text('Salom')
+    ->debug()
+    ->send();
+
+$message->debug;
+// [
+//   ['type' => 'request', 'method' => 'POST', 'url' => 'https://api-auth.textup.uz/v1/login',
+//    'request' => ['email' => 'a@b.uz', 'password' => '••••••'], 'status' => 200,
+//    'response' => ['accessToken' => '••••••', ...], 'duration_ms' => 182],
+//   ['type' => 'request', 'method' => 'POST', 'url' => 'https://sms-api.textup.uz/v1/send', ...],
+// ]
+```
+
+Code-only by design: there is no config key or env var, so debug can't be left on in production by accident. `debug()` exists on both builders — `to()->...->debug()->send()` and `many()->...->debug()->send()`.
+
+What lands in the trace:
+
+- **Every HTTP exchange** during the send — auth/login calls, the send itself, and any fallback provider's traffic — as `request` entries: `method`, `url`, `request` body, `status`, `response` body, `duration_ms`. Network-level failures appear as `connection_failed` entries.
+- **Fallback decisions** as `['type' => 'fallback', 'from' => 'textup', 'to' => 'playmobile']` entries, in order between the two providers' exchanges.
+- **The final failure**, when the result is unsuccessful, as an `exception` entry carrying `errorMessage`.
+
+Credentials are always redacted (`password`, `secret_key`, `token`, `accessToken` → `••••••`), request/response bodies included; headers are not captured at all. With debug off (the default) `SentMessage->debug` stays `null` and nothing is collected — zero overhead.
+
+Bulk note: batch HTTP requests cover many recipients at once, so every `SentMessage` in a bulk result carries the *whole* send's trace, not a per-message slice.
 
 ## Logging
 

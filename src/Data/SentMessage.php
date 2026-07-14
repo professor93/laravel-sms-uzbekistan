@@ -12,6 +12,7 @@ final class SentMessage extends Data
     /**
      * @param  array<array-key, mixed>  $raw
      * @param  string|null  $fallbackFrom  primary provider whose failed attempt this message replaced
+     * @param  list<array<string, mixed>>|null  $debug  HTTP/fallback trace, present only for debug()-enabled sends
      */
     public function __construct(
         public string $provider,
@@ -23,6 +24,7 @@ final class SentMessage extends Data
         public ?string $errorMessage = null,
         public array $raw = [],
         public ?string $fallbackFrom = null,
+        public ?array $debug = null,
     ) {}
 
     /**

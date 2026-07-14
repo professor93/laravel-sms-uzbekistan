@@ -11,6 +11,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\ServiceProvider;
 use Uzbek\Sms\Contracts\Driver;
+use Uzbek\Sms\Debug\DebugCollector;
 use Uzbek\Sms\Events\DeliveryStatusUpdated;
 use Uzbek\Sms\Events\SmsSent;
 use Uzbek\Sms\Listeners\LogDeliveryStatusUpdate;
@@ -31,6 +32,10 @@ final class SmsServiceProvider extends ServiceProvider
         ));
 
         $this->app->singleton(Driver::class, fn (Application $app): Driver => $app->make(DriverFactory::class)->default());
+
+        $this->app->singleton(DebugCollector::class, fn (Application $app): DebugCollector => new DebugCollector(
+            $app->make(Dispatcher::class),
+        ));
 
         foreach (array_keys((array) $this->app->make(ConfigRepository::class)->get('sms.providers', [])) as $name) {
             $this->app->singleton(
