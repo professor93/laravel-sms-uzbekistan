@@ -325,6 +325,26 @@ $info->perSegment;  // 70
 $message->segments(); // same SegmentInfo from any SentMessage
 ```
 
+## OTP codes
+
+`Sms::otp()` handles the whole one-time-code lifecycle — generate, send, verify — with codes hashed at rest in the cache, single-use, attempt-limited, and resend-throttled:
+
+```php
+use Uzbek\Sms\Enums\OtpStatus;
+
+Sms::otp()->send('+998901234567');                  // default provider
+Sms::otp()->send('+998901234567', 'playmobile');    // explicit provider
+
+match (Sms::otp()->verify('+998901234567', $input)) {
+    OtpStatus::Valid => '...',            // consumed, cannot be replayed
+    OtpStatus::Invalid => '...',          // wrong code, attempts remain
+    OtpStatus::TooManyAttempts => '...',  // locked out, code discarded
+    OtpStatus::Expired => '...',          // no active code for this phone
+};
+```
+
+Knobs in `config('sms.otp')`: `length` (6), `ttl` (300s), `max_attempts` (5), `resend_cooldown` (60s), `template` (`Tasdiqlash kodi: :code`). A resend inside the cooldown returns a failed `SentMessage` without touching the provider; if the cache store is down, no code is sent at all (it could never be verified).
+
 ## Notifications channel
 
 Register nothing — the `sms` channel is ready once the package is installed:

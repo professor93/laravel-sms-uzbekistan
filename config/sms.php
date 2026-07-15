@@ -69,6 +69,19 @@ return [
         'prefix' => env('SMS_CACHE_PREFIX', 'sms'),
     ],
 
+    /*
+     | One-time codes via Sms::otp()->send()/verify(): hashed at rest in the
+     | cache, single-use, attempt-limited, resend-throttled. The :code
+     | placeholder in the template is replaced with the generated digits.
+     */
+    'otp' => [
+        'length' => (int) env('SMS_OTP_LENGTH', 6),
+        'ttl' => (int) env('SMS_OTP_TTL', 300),
+        'max_attempts' => (int) env('SMS_OTP_MAX_ATTEMPTS', 5),
+        'resend_cooldown' => (int) env('SMS_OTP_RESEND_COOLDOWN', 60),
+        'template' => env('SMS_OTP_TEMPLATE', 'Tasdiqlash kodi: :code'),
+    ],
+
     'providers' => [
 
         'eskiz' => [

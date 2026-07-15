@@ -39,6 +39,11 @@ final class Sms extends Facade
         return $provider === null ? $checker->checkAll() : $checker->check($provider);
     }
 
+    public static function otp(): \Uzbek\Sms\Otp\OtpBroker
+    {
+        return static::getFacadeApplication()->make(\Uzbek\Sms\Otp\OtpBroker::class);
+    }
+
     public static function fake(): SmsFake
     {
         $app = static::getFacadeApplication();
