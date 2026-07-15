@@ -16,6 +16,8 @@ final class SmsLog extends Model
         return [
             'status' => DeliveryStatus::class,
             'payload' => 'array',
+            'segments' => 'integer',
+            'cost' => 'float',
         ];
     }
 }

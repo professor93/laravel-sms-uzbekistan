@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Sms\Listeners;
 
+use Illuminate\Support\Facades\Schema;
 use Uzbek\Sms\Events\SmsSent;
 use Uzbek\Sms\Models\SmsLog;
 
@@ -20,6 +21,12 @@ final class PersistSentMessage
             'error' => $message->errorMessage,
             'payload' => $message->raw,
         ];
+
+        // Installs that have not run the cost migration keep logging without it.
+        if (once(fn (): bool => Schema::hasColumn((new SmsLog)->getTable(), 'cost'))) {
+            $attributes['segments'] = $message->segments()->segments;
+            $attributes['cost'] = $message->cost();
+        }
 
         if ($message->providerMessageId === null) {
             SmsLog::query()->create([

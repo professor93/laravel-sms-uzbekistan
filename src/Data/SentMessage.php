@@ -21,6 +21,21 @@ final class SentMessage extends Data
     }
 
     /**
+     * segments × the provider's price_per_segment config; null when no price
+     * is set. Computed on read so price changes need no reprocessing.
+     */
+    public function cost(): ?float
+    {
+        $price = config("sms.providers.{$this->provider}.price_per_segment");
+
+        if (! is_numeric($price)) {
+            return null;
+        }
+
+        return round($this->segments()->segments * (float) $price, 2);
+    }
+
+    /**
      * Single write path for status changes: the DeliveryStatusUpdated event
      * carries it to sms_logs (when database logging is on) and to any app
      * listener — same route a webhook takes.
