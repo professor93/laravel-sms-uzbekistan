@@ -87,6 +87,9 @@ return [
             'from' => env('ESKIZ_FROM', '4546'),
             'token_ttl' => (int) env('ESKIZ_TOKEN_TTL', 2592000),
 
+            // Fires LowBalanceDetected when balance() drops below this (UZS).
+            'low_balance_threshold' => env('ESKIZ_LOW_BALANCE_THRESHOLD'),
+
             // Delivery callbacks: nothing is sent while callback_enabled is
             // false. When true, each send carries callback_url — the explicit
             // ESKIZ_CALLBACK_URL, or (when it is null and sms.webhook is

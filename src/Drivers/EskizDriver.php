@@ -13,14 +13,16 @@ use Throwable;
 use Uzbek\Sms\Authenticators\LoginTokenAuthenticator;
 use Uzbek\Sms\Concerns\VerifiesWebhookSecurity;
 use Uzbek\Sms\Contracts\Authenticator;
+use Uzbek\Sms\Contracts\ChecksBalance;
 use Uzbek\Sms\Contracts\ChecksDeliveryStatus;
 use Uzbek\Sms\Contracts\HandlesWebhooks;
+use Uzbek\Sms\Data\Balance;
 use Uzbek\Sms\Data\DeliveryReport;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Enums\DeliveryStatus;
 
-final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus, HandlesWebhooks
+final class EskizDriver extends AbstractDriver implements ChecksBalance, ChecksDeliveryStatus, HandlesWebhooks
 {
     use VerifiesWebhookSecurity;
 
@@ -104,6 +106,17 @@ final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus, 
             status: $this->mapStatus((string) ($payload['status'] ?? '')),
             raw: $payload,
         );
+    }
+
+    public function balance(): Balance
+    {
+        $response = $this->http()->get('user/get-limit')->throw();
+
+        return $this->reportBalance(new Balance(
+            amount: (float) $response->json('data.balance'),
+            currency: 'UZS',
+            raw: (array) $response->json(),
+        ));
     }
 
     public function checkStatus(string $providerMessageId): DeliveryStatus

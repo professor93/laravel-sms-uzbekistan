@@ -357,6 +357,22 @@ class OrderShipped extends Notification
 
 The recipient comes from `routeNotificationForSms()` on the notifiable (or `SmsMessage->to()` to override); on-demand works too: `Notification::route('sms', '+998901234567')->notify(...)`. A missing route or missing `toSms()` skips the notification with a logged warning — it never throws.
 
+## Balance
+
+Providers with a balance endpoint implement `ChecksBalance` (currently Eskiz; PlayMobile runs mixed prepaid/postpaid accounts and exposes no endpoint):
+
+```php
+use Uzbek\Sms\Contracts\ChecksBalance;
+
+$driver = sms('eskiz');
+
+if ($driver instanceof ChecksBalance) {
+    $driver->balance()->amount;   // 150000.0 (UZS)
+}
+```
+
+Set `ESKIZ_LOW_BALANCE_THRESHOLD` and every `balance()` call below it dispatches `Uzbek\Sms\Events\LowBalanceDetected` — listen to alert ops before the account runs dry. Schedule a periodic `balance()` call yourself if you want continuous monitoring.
+
 ## Capability detection
 
 Not every provider supports every feature. Detect capabilities with `instanceof` instead of assuming:

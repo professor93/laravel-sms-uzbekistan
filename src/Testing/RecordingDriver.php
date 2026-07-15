@@ -7,7 +7,9 @@ namespace Uzbek\Sms\Testing;
 use Closure;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Uzbek\Sms\Contracts\ChecksBalance;
 use Uzbek\Sms\Contracts\Driver;
+use Uzbek\Sms\Data\Balance;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\PendingBulkMessage;
@@ -17,12 +19,17 @@ use Uzbek\Sms\PendingMessage;
  * Stand-in driver used by Sms::fake(): records every send, touches nothing —
  * no HTTP, no events, no listeners.
  */
-final class RecordingDriver implements Driver
+final class RecordingDriver implements ChecksBalance, Driver
 {
     public function __construct(
         private readonly string $provider,
         private readonly SmsFake $fake,
     ) {}
+
+    public function balance(): Balance
+    {
+        return new Balance(amount: 999999.0, currency: null, raw: ['fake' => true]);
+    }
 
     public function send(string $phone, string $text): SentMessage
     {

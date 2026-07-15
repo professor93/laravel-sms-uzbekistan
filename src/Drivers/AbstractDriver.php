@@ -18,10 +18,12 @@ use Uzbek\Sms\Contracts\Authenticator;
 use Uzbek\Sms\Contracts\Driver;
 use Uzbek\Sms\Contracts\PrefixRules;
 use Uzbek\Sms\Contracts\SupportsBulkFallback;
+use Uzbek\Sms\Data\Balance;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Debug\DebugCollector;
 use Uzbek\Sms\DriverFactory;
+use Uzbek\Sms\Events\LowBalanceDetected;
 use Uzbek\Sms\Events\SmsSent;
 use Uzbek\Sms\Exceptions\ProhibitedPhoneException;
 use Uzbek\Sms\Exceptions\SmsException;
@@ -279,6 +281,21 @@ abstract class AbstractDriver implements Driver
         $fallback = $this->config['fallback'] ?? null;
 
         return is_string($fallback) && $fallback !== '' ? $fallback : null;
+    }
+
+    /**
+     * Fires LowBalanceDetected when the amount falls below the provider's
+     * low_balance_threshold config. Drivers wrap their balance() result.
+     */
+    protected function reportBalance(Balance $balance): Balance
+    {
+        $threshold = $this->config['low_balance_threshold'] ?? null;
+
+        if (is_numeric($threshold) && $balance->amount < (float) $threshold) {
+            Event::dispatch(new LowBalanceDetected($this->name(), $balance->amount, (float) $threshold));
+        }
+
+        return $balance;
     }
 
     /**

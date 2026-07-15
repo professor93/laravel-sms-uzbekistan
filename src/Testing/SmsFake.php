@@ -107,6 +107,11 @@ final class SmsFake extends DriverFactory implements Driver
         return $this->defaultDriver()->name();
     }
 
+    public function balance(): \Uzbek\Sms\Data\Balance
+    {
+        return (new RecordingDriver((string) config('sms.default'), $this))->balance();
+    }
+
     public function defaultFallback(): ?string
     {
         return $this->defaultDriver()->defaultFallback();
