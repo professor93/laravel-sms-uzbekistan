@@ -39,6 +39,14 @@ final class Sms extends Facade
         return $provider === null ? $checker->checkAll() : $checker->check($provider);
     }
 
+    public static function stats(
+        ?\DateTimeInterface $from = null,
+        ?\DateTimeInterface $to = null,
+        ?string $provider = null,
+    ): \Uzbek\Sms\Data\StatsReport {
+        return static::getFacadeApplication()->make(\Uzbek\Sms\Stats\SmsStats::class)->report($from, $to, $provider);
+    }
+
     public static function otp(): \Uzbek\Sms\Otp\OtpBroker
     {
         return static::getFacadeApplication()->make(\Uzbek\Sms\Otp\OtpBroker::class);
