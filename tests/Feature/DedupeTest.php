@@ -2,9 +2,11 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\DriverFactory;
+use Uzbek\Sms\Exceptions\DriverDisabledException;
 use Uzbek\Sms\Facades\Sms;
 use Uzbek\Sms\Jobs\SendSmsJob;
 
@@ -48,6 +50,24 @@ it('a retried job with the same key sends only once', function () {
     $job->handle(app(DriverFactory::class));
 
     Sms::assertSentCount(1);
+});
+
+it('does not burn the dedupe key when the primary resolution fails', function () {
+    Http::fake([
+        'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
+        'notify.eskiz.uz/api/message/sms/send' => Http::response(['id' => 1, 'status' => 'waiting']),
+    ]);
+
+    $factory = app(DriverFactory::class);
+
+    $broken = $factory->make('eskiz')->to('+998901234567')->text('S')->dedupe('cfg:1')->as(['enabled' => false]);
+
+    expect(fn () => $broken->send())->toThrow(DriverDisabledException::class);
+
+    // Config error must not consume the key — the corrected send goes through.
+    $message = $factory->make('eskiz')->to('+998901234567')->text('S')->dedupe('cfg:1')->send();
+
+    expect($message->successful)->toBeTrue();
 });
 
 it('dedupes a whole bulk batch', function () {

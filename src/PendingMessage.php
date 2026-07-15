@@ -136,15 +136,16 @@ final class PendingMessage
         $this->guardReadyToSend();
         $this->guardTemplateCompliance([(string) $this->text]);
 
+        // Resolving the primary can throw for a disabled/unknown override
+        // driver — a config error, so the builder must stay reusable and the
+        // dedupe key must stay unreserved until this succeeds.
+        $primary = $this->primary();
+
         if (! $this->reserveDedupe()) {
             $this->sent = true;
 
             return $this->duplicateResult($this->phone, $this->text);
         }
-
-        // Resolving the primary can throw for a disabled/unknown override
-        // driver — a config error, so the builder must stay reusable.
-        $primary = $this->primary();
 
         $this->sent = true;
 
