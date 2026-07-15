@@ -15,14 +15,16 @@ use Uzbek\Sms\Concerns\VerifiesWebhookSecurity;
 use Uzbek\Sms\Contracts\Authenticator;
 use Uzbek\Sms\Contracts\ChecksBalance;
 use Uzbek\Sms\Contracts\ChecksDeliveryStatus;
+use Uzbek\Sms\Contracts\ChecksHealth;
 use Uzbek\Sms\Contracts\HandlesWebhooks;
 use Uzbek\Sms\Data\Balance;
 use Uzbek\Sms\Data\DeliveryReport;
+use Uzbek\Sms\Data\HealthStatus;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Enums\DeliveryStatus;
 
-final class EskizDriver extends AbstractDriver implements ChecksBalance, ChecksDeliveryStatus, HandlesWebhooks
+final class EskizDriver extends AbstractDriver implements ChecksBalance, ChecksDeliveryStatus, ChecksHealth, HandlesWebhooks
 {
     use VerifiesWebhookSecurity;
 
@@ -106,6 +108,20 @@ final class EskizDriver extends AbstractDriver implements ChecksBalance, ChecksD
             status: $this->mapStatus((string) ($payload['status'] ?? '')),
             raw: $payload,
         );
+    }
+
+    /**
+     * A successful balance call proves login, token, and API reachability.
+     */
+    public function healthy(): HealthStatus
+    {
+        try {
+            $balance = $this->balance();
+
+            return HealthStatus::ok(sprintf('Balance: %s UZS', $balance->amount));
+        } catch (Throwable $e) {
+            return HealthStatus::failed($e->getMessage());
+        }
     }
 
     public function balance(): Balance

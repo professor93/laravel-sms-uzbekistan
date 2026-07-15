@@ -373,6 +373,22 @@ if ($driver instanceof ChecksBalance) {
 
 Set `ESKIZ_LOW_BALANCE_THRESHOLD` and every `balance()` call below it dispatches `Uzbek\Sms\Events\LowBalanceDetected` — listen to alert ops before the account runs dry. Schedule a periodic `balance()` call yourself if you want continuous monitoring.
 
+## Health checks
+
+`Sms::health('eskiz')` returns a `HealthStatus` (`healthy` true / false / null-unknown + message); `Sms::health()` probes every configured provider. It never throws — unknown providers, broken check classes, and probe exceptions all come back as failed statuses, ready for a monitoring endpoint:
+
+```php
+Sms::health('eskiz')->healthy;   // true — Eskiz ships a built-in probe (login + balance)
+Sms::health('sayqal')->healthy;  // null — no probe configured
+```
+
+Register your own probe per provider — the config class wins over the driver's built-in:
+
+```php
+// implements Uzbek\Sms\Contracts\HealthCheck: check(Driver $driver): HealthStatus
+'providers' => ['playmobile' => [/* ... */ 'health_check' => \App\Sms\PlayMobileProbe::class]],
+```
+
 ## Capability detection
 
 Not every provider supports every feature. Detect capabilities with `instanceof` instead of assuming:

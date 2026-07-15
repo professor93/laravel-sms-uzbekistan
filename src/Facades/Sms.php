@@ -29,6 +29,16 @@ use Uzbek\Sms\Testing\SmsFake;
  */
 final class Sms extends Facade
 {
+    /**
+     * @return \Uzbek\Sms\Data\HealthStatus|array<string, \Uzbek\Sms\Data\HealthStatus>
+     */
+    public static function health(?string $provider = null): \Uzbek\Sms\Data\HealthStatus|array
+    {
+        $checker = static::getFacadeApplication()->make(\Uzbek\Sms\HealthChecker::class);
+
+        return $provider === null ? $checker->checkAll() : $checker->check($provider);
+    }
+
     public static function fake(): SmsFake
     {
         $app = static::getFacadeApplication();
