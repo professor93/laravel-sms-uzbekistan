@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace Uzbek\Sms\Data;
 
+use Illuminate\Support\Facades\Event;
 use Spatie\LaravelData\Data;
+use Throwable;
+use Uzbek\Sms\Contracts\ChecksDeliveryStatus;
+use Uzbek\Sms\DriverFactory;
 use Uzbek\Sms\Enums\DeliveryStatus;
+use Uzbek\Sms\Events\DeliveryStatusUpdated;
 use Uzbek\Sms\Support\SegmentCalculator;
 
 final class SentMessage extends Data
@@ -13,6 +18,50 @@ final class SentMessage extends Data
     public function segments(): SegmentInfo
     {
         return SegmentCalculator::for($this->text);
+    }
+
+    /**
+     * Single write path for status changes: the DeliveryStatusUpdated event
+     * carries it to sms_logs (when database logging is on) and to any app
+     * listener — same route a webhook takes.
+     */
+    public function updateStatus(DeliveryStatus $status): self
+    {
+        $this->status = $status;
+
+        if ($this->providerMessageId !== null) {
+            Event::dispatch(new DeliveryStatusUpdated(
+                provider: $this->provider,
+                providerMessageId: $this->providerMessageId,
+                status: $status,
+                raw: $this->raw,
+            ));
+        }
+
+        return $this;
+    }
+
+    /**
+     * Polls the provider and syncs. No-ops without a provider message id, on
+     * drivers without ChecksDeliveryStatus, and on transport errors.
+     */
+    public function refreshStatus(): self
+    {
+        if ($this->providerMessageId === null) {
+            return $this;
+        }
+
+        try {
+            $driver = app(DriverFactory::class)->make($this->provider);
+
+            if (! $driver instanceof ChecksDeliveryStatus) {
+                return $this;
+            }
+
+            return $this->updateStatus($driver->checkStatus($this->providerMessageId));
+        } catch (Throwable) {
+            return $this;
+        }
     }
 
     /**
