@@ -285,6 +285,19 @@ $results->where('successful', false)->count(); // failed recipients
 
 The only exceptions you will ever see are configuration errors at resolution time — see below.
 
+## Queued and scheduled sends
+
+Both builders queue instead of blocking the request — `queue()` for now, `later()` for a scheduled send:
+
+```php
+Sms::to('+998901234567')->text('Salom')->queue();          // default queue
+Sms::to('+998901234567')->text('Salom')->queue('sms');     // named queue
+Sms::to('+998901234567')->text('Salom')->later(now()->addMinutes(10));
+Sms::many($messages)->later(now()->setTime(9, 0), 'sms');  // marketing at 09:00
+```
+
+The fallback provider is resolved at queue time; per-message options and runtime credentials travel with the job. Inside the job a provider failure becomes the usual `SentMessage::failed` + events — the job doesn't throw, so queue retries stay reserved for infrastructure errors. Two builder features are sync-only and throw a `LogicException` if queued: `debug()` and `useFallback()` with a Closure predicate.
+
 ## Segments and encoding
 
 One Cyrillic character switches an SMS from GSM-7 (160 chars/segment) to UCS-2 (70 chars/segment) — doubling the cost of a "160-char" message without warning. Check before or after sending:

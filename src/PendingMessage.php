@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Uzbek\Sms;
 
+use DateInterval;
+use DateTimeInterface;
+use Illuminate\Foundation\Bus\PendingDispatch;
 use LogicException;
 use Uzbek\Sms\Concerns\HasSendOptions;
 use Uzbek\Sms\Contracts\Driver;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Debug\DebugCollector;
+use Uzbek\Sms\Jobs\SendSmsJob;
 
 final class PendingMessage
 {
@@ -79,19 +83,46 @@ final class PendingMessage
         return $this->as($credentials);
     }
 
+    public function queue(?string $queue = null): PendingDispatch
+    {
+        $this->guardReadyToSend();
+
+        if ($this->debug) {
+            throw new LogicException('debug() traces the live HTTP exchange and cannot be queued.');
+        }
+
+        if ($this->fallbackWhen !== null) {
+            throw new LogicException('useFallback() with a Closure predicate cannot be queued.');
+        }
+
+        // Fallback resolves now so the job survives later config changes.
+        $job = new SendSmsJob(
+            provider: $this->driver->name(),
+            phone: (string) $this->phone,
+            text: (string) $this->text,
+            overrides: $this->overrides,
+            fallback: $this->effectiveFallback(),
+        );
+
+        $this->sent = true;
+
+        $dispatch = dispatch($job);
+
+        if ($queue !== null) {
+            $dispatch->onQueue($queue);
+        }
+
+        return $dispatch;
+    }
+
+    public function later(DateTimeInterface|DateInterval|int $delay, ?string $queue = null): PendingDispatch
+    {
+        return $this->queue($queue)->delay($delay);
+    }
+
     public function send(): SentMessage
     {
-        if ($this->sent) {
-            throw new LogicException('Message already sent. Build a new message for each send.');
-        }
-
-        if ($this->phone === null || $this->phone === '') {
-            throw new LogicException('No recipient set. Call to() before send().');
-        }
-
-        if ($this->text === null || $this->text === '') {
-            throw new LogicException('No text set. Call text() before send().');
-        }
+        $this->guardReadyToSend();
 
         // Resolving the primary can throw for a disabled/unknown override
         // driver — a config error, so the builder must stay reusable.
@@ -132,6 +163,21 @@ final class PendingMessage
         }
 
         return $result;
+    }
+
+    private function guardReadyToSend(): void
+    {
+        if ($this->sent) {
+            throw new LogicException('Message already sent. Build a new message for each send.');
+        }
+
+        if ($this->phone === null || $this->phone === '') {
+            throw new LogicException('No recipient set. Call to() before send().');
+        }
+
+        if ($this->text === null || $this->text === '') {
+            throw new LogicException('No text set. Call text() before send().');
+        }
     }
 
     private function primary(): Driver

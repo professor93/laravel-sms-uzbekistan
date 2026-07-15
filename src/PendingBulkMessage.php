@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Uzbek\Sms;
 
+use DateInterval;
+use DateTimeInterface;
+use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Support\Collection;
 use LogicException;
 use Uzbek\Sms\Concerns\HasSendOptions;
 use Uzbek\Sms\Contracts\Driver;
+use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Debug\DebugCollector;
+use Uzbek\Sms\Jobs\SendBulkSmsJob;
 
 final class PendingBulkMessage
 {
@@ -22,6 +27,46 @@ final class PendingBulkMessage
         private readonly Driver $driver,
         private readonly iterable $messages,
     ) {}
+
+    public function queue(?string $queue = null): PendingDispatch
+    {
+        if ($this->sent) {
+            throw new LogicException('Messages already sent. Build a new bulk message for each send.');
+        }
+
+        if ($this->debug) {
+            throw new LogicException('debug() traces the live HTTP exchange and cannot be queued.');
+        }
+
+        if ($this->fallbackWhen !== null) {
+            throw new LogicException('useFallback() with a Closure predicate cannot be queued.');
+        }
+
+        // Fallback resolves now so the job survives later config changes.
+        $job = new SendBulkSmsJob(
+            provider: $this->driver->name(),
+            messages: Collection::make($this->messages)
+                ->values()
+                ->map(fn (OutboundMessage $message): array => ['phone' => $message->phone, 'text' => $message->text])
+                ->all(),
+            fallback: $this->effectiveFallback(),
+        );
+
+        $this->sent = true;
+
+        $dispatch = dispatch($job);
+
+        if ($queue !== null) {
+            $dispatch->onQueue($queue);
+        }
+
+        return $dispatch;
+    }
+
+    public function later(DateTimeInterface|DateInterval|int $delay, ?string $queue = null): PendingDispatch
+    {
+        return $this->queue($queue)->delay($delay);
+    }
 
     /**
      * @return Collection<int, SentMessage>
