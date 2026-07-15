@@ -34,6 +34,8 @@ final class PendingBulkMessage
             throw new LogicException('Messages already sent. Build a new bulk message for each send.');
         }
 
+        $this->guardTemplateCompliance($this->texts());
+
         if ($this->debug) {
             throw new LogicException('debug() traces the live HTTP exchange and cannot be queued.');
         }
@@ -71,6 +73,17 @@ final class PendingBulkMessage
     }
 
     /**
+     * @return list<string>
+     */
+    private function texts(): array
+    {
+        return Collection::make($this->messages)
+            ->map(fn (OutboundMessage $message): string => $message->text)
+            ->values()
+            ->all();
+    }
+
+    /**
      * @return Collection<int, SentMessage>
      */
     public function send(): Collection
@@ -78,6 +91,8 @@ final class PendingBulkMessage
         if ($this->sent) {
             throw new LogicException('Messages already sent. Build a new bulk message for each send.');
         }
+
+        $this->guardTemplateCompliance($this->texts());
 
         $this->sent = true;
 

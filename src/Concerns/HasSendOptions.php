@@ -77,6 +77,29 @@ trait HasSendOptions
     }
 
     /**
+     * With sms.templates.enforce on, every outgoing text must match a
+     * template — a mismatch throws before any transport starts.
+     *
+     * @param  iterable<string>  $texts
+     *
+     * @throws \Uzbek\Sms\Exceptions\TemplateViolationException
+     */
+    private function guardTemplateCompliance(iterable $texts): void
+    {
+        if (! config('sms.templates.enforce')) {
+            return;
+        }
+
+        $registry = app(\Uzbek\Sms\Templates\TemplateRegistry::class);
+
+        foreach ($texts as $text) {
+            if (! $registry->matches((string) $text)) {
+                throw \Uzbek\Sms\Exceptions\TemplateViolationException::make((string) $text);
+            }
+        }
+    }
+
+    /**
      * True when this send may proceed. Fails open: an unavailable cache store
      * must not stop messaging, losing dedupe protection is the lesser harm.
      */

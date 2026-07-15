@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Sms\Otp;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 use Uzbek\Sms\Data\SentMessage;
@@ -19,8 +20,20 @@ final class OtpBroker
 {
     public function __construct(private readonly DriverFactory $factory) {}
 
-    public function send(string $phone, ?string $provider = null): SentMessage
-    {
+    /**
+     * The template may be a name from sms.templates.list, a translation key
+     * (localized via $locale or the app locale), or a raw string; :code and
+     * any $params placeholders are filled in.
+     *
+     * @param  array<string, string|int|float>  $params
+     */
+    public function send(
+        string $phone,
+        ?string $provider = null,
+        ?string $template = null,
+        array $params = [],
+        ?string $locale = null,
+    ): SentMessage {
         $digits = $this->digits($phone);
 
         try {
@@ -48,9 +61,31 @@ final class OtpBroker
 
         $driver = $provider === null ? $this->factory->default() : $this->factory->make($provider);
 
-        $text = str_replace(':code', $code, (string) config('sms.otp.template', 'Tasdiqlash kodi: :code'));
+        $text = $this->renderTemplate($template, ['code' => $code] + $params, $locale);
 
         return $driver->to($phone)->text($text)->otp()->send();
+    }
+
+    /**
+     * @param  array<string, string|int|float>  $params
+     */
+    private function renderTemplate(?string $template, array $params, ?string $locale): string
+    {
+        $key = $template ?? (string) config('sms.otp.template', 'Tasdiqlash kodi: :code');
+
+        $registered = config("sms.templates.list.{$key}");
+
+        $text = match (true) {
+            is_string($registered) => $registered,
+            Lang::has($key, $locale) => (string) Lang::get($key, [], $locale),
+            default => $key,
+        };
+
+        foreach ($params as $name => $value) {
+            $text = str_replace(':'.$name, (string) $value, $text);
+        }
+
+        return $text;
     }
 
     public function verify(string $phone, string $code): OtpStatus

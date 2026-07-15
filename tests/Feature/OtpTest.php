@@ -93,3 +93,32 @@ it('normalizes the phone between send and verify', function () {
 
     expect(Sms::otp()->verify('998901234567', lastOtpCode()))->toBe(OtpStatus::Valid);
 });
+
+it('accepts a raw template with extra variables per send', function () {
+    Sms::fake();
+
+    Sms::otp()->send('+998901234567', template: 'Sizning :app kodingiz: :code', params: ['app' => 'MyShop']);
+
+    expect(Sms::sent()->first()->text)->toMatch('/^Sizning MyShop kodingiz: \d{6}$/');
+});
+
+it('resolves a template name from the registry', function () {
+    config()->set('sms.templates.list.otp-uz', ':app kodi: :code');
+
+    Sms::fake();
+
+    Sms::otp()->send('+998901234567', template: 'otp-uz', params: ['app' => 'MyShop']);
+
+    expect(Sms::sent()->first()->text)->toMatch('/^MyShop kodi: \d{6}$/');
+});
+
+it('localizes a translation-key template', function () {
+    app('translator')->addLines(['sms.otp' => 'Kodingiz: :code'], 'uz');
+    app('translator')->addLines(['sms.otp' => 'Vash kod: :code'], 'ru');
+
+    Sms::fake();
+
+    Sms::otp()->send('+998901234567', template: 'sms.otp', locale: 'ru');
+
+    expect(Sms::sent()->first()->text)->toMatch('/^Vash kod: \d{6}$/');
+});

@@ -41,6 +41,14 @@ final class PendingMessage
         return $this;
     }
 
+    /**
+     * @param  array<string, string|int|float>  $params
+     */
+    public function template(string $name, array $params = []): self
+    {
+        return $this->text(app(Templates\TemplateRegistry::class)->render($name, $params));
+    }
+
     public function otp(bool $otp = true): self
     {
         $this->overrides['is_otp'] = $otp;
@@ -86,6 +94,7 @@ final class PendingMessage
     public function queue(?string $queue = null): PendingDispatch
     {
         $this->guardReadyToSend();
+        $this->guardTemplateCompliance([(string) $this->text]);
 
         if ($this->debug) {
             throw new LogicException('debug() traces the live HTTP exchange and cannot be queued.');
@@ -125,6 +134,7 @@ final class PendingMessage
     public function send(): SentMessage
     {
         $this->guardReadyToSend();
+        $this->guardTemplateCompliance([(string) $this->text]);
 
         if (! $this->reserveDedupe()) {
             $this->sent = true;

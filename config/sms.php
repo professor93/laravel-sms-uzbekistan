@@ -70,9 +70,25 @@ return [
     ],
 
     /*
+     | Named message templates (:placeholders become wildcards for matching).
+     | enforce=false only enables ->template('name', [...]) rendering;
+     | enforce=true additionally blocks any builder text that matches no
+     | template by throwing TemplateViolationException before transport —
+     | matches the Eskiz/TextUp moderation reality.
+     */
+    'templates' => [
+        'enforce' => (bool) env('SMS_TEMPLATES_ENFORCE', false),
+        'list' => [
+            // 'welcome' => 'Xush kelibsiz, :name!',
+        ],
+    ],
+
+    /*
      | One-time codes via Sms::otp()->send()/verify(): hashed at rest in the
      | cache, single-use, attempt-limited, resend-throttled. The :code
      | placeholder in the template is replaced with the generated digits.
+     | The template may be a raw string, a name from templates.list, or a
+     | translation key (localized per app locale or the send() locale arg).
      */
     'otp' => [
         'length' => (int) env('SMS_OTP_LENGTH', 6),
