@@ -454,6 +454,21 @@ sms('textup', ['is_otp' => true])->send($phone, 'Your code is 1234');  // this m
 sms('textup')->send($phone, $text);                                    // normal
 ```
 
+## Transient retries
+
+Off by default (a 5xx or timeout fails the send immediately, as before). Opt in per provider:
+
+```php
+'providers' => [
+    'eskiz' => [
+        // ...
+        'retry' => ['times' => 3, 'sleep' => 200],   // total attempts, ms between
+    ],
+],
+```
+
+Retried: connection failures and 5xx responses. Never retried: 4xx client errors. The built-in 401 refresh-and-retry keeps working either way.
+
 ## Fallback provider
 
 For a single send, name a secondary provider to try when the primary fails:

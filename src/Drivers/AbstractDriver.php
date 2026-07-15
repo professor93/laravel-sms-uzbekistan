@@ -7,6 +7,7 @@ namespace Uzbek\Sms\Drivers;
 use Closure;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
@@ -468,17 +469,29 @@ abstract class AbstractDriver implements Driver
 
         $request = $this->auth->apply($request);
 
+        // Opt-in transient retries; without the config the behavior stays
+        // exactly as before (2 attempts, 401-refresh only).
+        $transientAttempts = (int) ($this->config['retry']['times'] ?? 0);
+
+        $attempts = max(2, $transientAttempts);
+        $sleep = (int) ($this->config['retry']['sleep'] ?? 200);
+
         // Nullable: Laravel passes null for non-2xx, non-failed (3xx) responses.
-        return $request->retry(2, 200, function (?Throwable $e, PendingRequest $request): bool {
-            if (! $e instanceof RequestException || $e->response->status() !== 401) {
+        return $request->retry($attempts, $sleep, function (?Throwable $e, PendingRequest $request) use ($transientAttempts): bool {
+            if ($e instanceof RequestException && $e->response->status() === 401) {
+                $this->auth->refresh();
+                // Mutate the same request so the retry carries the fresh token.
+                $this->auth->apply($request);
+
+                return true;
+            }
+
+            if ($transientAttempts < 2) {
                 return false;
             }
 
-            $this->auth->refresh();
-            // Mutate the same request so the retry carries the fresh token.
-            $this->auth->apply($request);
-
-            return true;
+            return $e instanceof ConnectionException
+                || ($e instanceof RequestException && $e->response->serverError());
         });
     }
 }
