@@ -65,6 +65,7 @@ final class SmsServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->commands([
+                Console\MakeSmsDriverCommand::class,
                 Console\PruneSmsLogsCommand::class,
             ]);
 

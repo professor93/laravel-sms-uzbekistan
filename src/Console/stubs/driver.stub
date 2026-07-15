@@ -1,0 +1,117 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Http\Client\Factory as HttpFactory;
+use Uzbek\Sms\Authenticators\ApiKeyAuthenticator;
+use Uzbek\Sms\Contracts\Authenticator;
+use Uzbek\Sms\Data\SentMessage;
+use Uzbek\Sms\Drivers\AbstractDriver;
+use Uzbek\Sms\Enums\DeliveryStatus;
+
+/**
+ * Register in config/sms.php:
+ *
+ *     'drivers' => ['{{ alias }}' => \{{ namespace }}\{{ class }}::class],
+ *
+ *     'providers' => [
+ *         '{{ alias }}' => [
+ *             'driver' => '{{ alias }}',
+ *             'enabled' => true,
+ *             'base_url' => env('{{ env }}_BASE_URL'),
+ *             'api_key' => env('{{ env }}_API_KEY'),
+ *             'from' => env('{{ env }}_FROM'),
+ *             'http_options' => [],
+ *         ],
+ *     ],
+ *
+ * Optional capability contracts — implement only what the provider offers:
+ *
+ * - \Uzbek\Sms\Contracts\ChecksDeliveryStatus
+ *       checkStatus($providerMessageId): DeliveryStatus — lets the app and
+ *       SentMessage::refreshStatus() poll delivery status.
+ *
+ * - \Uzbek\Sms\Contracts\HandlesWebhooks
+ *       verifyWebhook() + parseWebhook() — turns on POST
+ *       /sms/webhooks/{{ alias }} for delivery callbacks. Reuse the
+ *       \Uzbek\Sms\Concerns\VerifiesWebhookSecurity trait for the shared
+ *       ?token= secret and IP-allowlist guards.
+ *
+ * - \Uzbek\Sms\Contracts\ChecksBalance
+ *       balance(): Balance — wrap the result in $this->reportBalance() so a
+ *       low_balance_threshold fires LowBalanceDetected.
+ *
+ * - \Uzbek\Sms\Contracts\ChecksHealth
+ *       healthy(): HealthStatus — the built-in probe behind Sms::health()
+ *       (a health_check config class overrides it).
+ *
+ * - \Uzbek\Sms\Contracts\SupportsBulkFallback
+ *       marker interface, no methods — declare it ONLY when sendMany() sends
+ *       one message at a time, so a bulk fallback provider can safely retry
+ *       individual failures.
+ *
+ * Events, DB/debug logging, 401 refresh, transient retries, circuit breaker,
+ * prefix rules, chunking, templates, fake mode, and the fluent builders all
+ * come from AbstractDriver — nothing to wire.
+ */
+final class {{ class }} extends AbstractDriver
+{
+    /**
+     * Reuse a shipped authenticator: ApiKeyAuthenticator,
+     * BearerTokenAuthenticator, BasicAuthenticator, SignedTokenAuthenticator,
+     * or LoginTokenAuthenticator (cached token, single-flight refresh) — or
+     * implement \Uzbek\Sms\Contracts\Authenticator yourself.
+     */
+    public static function resolveAuthenticator(
+        array $config,
+        CacheRepository $cache,
+        HttpFactory $http,
+    ): Authenticator {
+        return new ApiKeyAuthenticator('X-Api-Key', (string) ($config['api_key'] ?? ''));
+    }
+
+    /**
+     * One outbound SMS. $this->http() is preconfigured with base_url, JSON
+     * headers, auth, and retries. Throw on failure — send() turns it into a
+     * failed SentMessage and triggers the configured fallback.
+     */
+    protected function doSend(string $phone, string $text): SentMessage
+    {
+        $response = $this->http()->post('send', [
+            'to' => $phone,
+            'text' => $text,
+            'from' => $this->config['from'] ?? null,
+        ])->throw();
+
+        return SentMessage::success(
+            provider: $this->name(),
+            phone: $phone,
+            text: $text,
+            providerMessageId: (string) $response->json('id'),
+            raw: (array) $response->json(),
+            status: $this->mapStatus((string) $response->json('status')),
+        );
+    }
+
+    // Native batch endpoint? Override doSendMany(Collection $messages) and
+    // route the results through $this->finalizeBulk() so SmsSent fires
+    // exactly once per message. Without it, sendMany() loops doSend().
+
+    /**
+     * Map the provider's status vocabulary onto the package enum.
+     */
+    private function mapStatus(string $status): DeliveryStatus
+    {
+        return match (strtolower($status)) {
+            'queued', 'accepted' => DeliveryStatus::Pending,
+            'sent' => DeliveryStatus::Sent,
+            'delivered' => DeliveryStatus::Delivered,
+            'undelivered', 'expired' => DeliveryStatus::Undelivered,
+            'rejected', 'failed' => DeliveryStatus::Failed,
+            default => DeliveryStatus::Unknown,
+        };
+    }
+}
