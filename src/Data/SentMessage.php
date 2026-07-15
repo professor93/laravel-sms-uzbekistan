@@ -6,9 +6,15 @@ namespace Uzbek\Sms\Data;
 
 use Spatie\LaravelData\Data;
 use Uzbek\Sms\Enums\DeliveryStatus;
+use Uzbek\Sms\Support\SegmentCalculator;
 
 final class SentMessage extends Data
 {
+    public function segments(): SegmentInfo
+    {
+        return SegmentCalculator::for($this->text);
+    }
+
     /**
      * @param  array<array-key, mixed>  $raw
      * @param  string|null  $fallbackFrom  primary provider whose failed attempt this message replaced

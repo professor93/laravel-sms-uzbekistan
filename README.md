@@ -285,6 +285,22 @@ $results->where('successful', false)->count(); // failed recipients
 
 The only exceptions you will ever see are configuration errors at resolution time — see below.
 
+## Segments and encoding
+
+One Cyrillic character switches an SMS from GSM-7 (160 chars/segment) to UCS-2 (70 chars/segment) — doubling the cost of a "160-char" message without warning. Check before or after sending:
+
+```php
+use Uzbek\Sms\Support\SegmentCalculator;
+
+$info = SegmentCalculator::for('Салом дунё');
+$info->encoding;    // SmsEncoding::Ucs2
+$info->length;      // 10 (UTF-16 units; GSM extension chars like { count twice)
+$info->segments;    // 1
+$info->perSegment;  // 70
+
+$message->segments(); // same SegmentInfo from any SentMessage
+```
+
 ## Capability detection
 
 Not every provider supports every feature. Detect capabilities with `instanceof` instead of assuming:
