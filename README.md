@@ -469,6 +469,21 @@ Off by default (a 5xx or timeout fails the send immediately, as before). Opt in 
 
 Retried: connection failures and 5xx responses. Never retried: 4xx client errors. The built-in 401 refresh-and-retry keeps working either way.
 
+## Circuit breaker
+
+Off by default. When enabled, N consecutive failures open the circuit: further sends fast-fail without touching the provider for the cooldown window, and your configured fallback provider takes over immediately (a fast-failed message is a failed message, so the normal fallback path fires):
+
+```php
+'providers' => [
+    'eskiz' => [
+        // ...
+        'circuit_breaker' => ['threshold' => 5, 'cooldown' => 60],   // failures, seconds
+    ],
+],
+```
+
+Any success closes the counter; prefix-rule rejections and fake-mode sends don't count. State lives in the same cache store as auth tokens; if the cache is unavailable the breaker simply stays closed.
+
 ## Fallback provider
 
 For a single send, name a secondary provider to try when the primary fails:

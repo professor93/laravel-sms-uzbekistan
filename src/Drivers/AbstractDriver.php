@@ -50,13 +50,29 @@ abstract class AbstractDriver implements Driver
     {
         $this->loadDynamicPrefixes();
 
+        if (! $this->faking() && $this->circuitOpen()) {
+            $message = $this->circuitOpenResult($phone, $text);
+
+            $this->dispatchSent($message);
+
+            return $message;
+        }
+
         try {
             $this->guardPhone($phone);
 
             $message = $this->faking()
                 ? $this->fakeResult($phone, $text, $this->fakeSuccessRate(), app(DebugCollector::class))
                 : $this->doSend($phone, $text);
+
+            if (! $this->faking()) {
+                $this->recordBreakerSuccess();
+            }
         } catch (Throwable $e) {
+            if (! $this->faking() && ! $e instanceof ProhibitedPhoneException) {
+                $this->recordBreakerFailure();
+            }
+
             $message = SentMessage::failed($this->name(), $phone, $text, $e->getMessage());
         }
 
@@ -94,24 +110,140 @@ abstract class AbstractDriver implements Driver
             $this->dispatchSent($failure);
         }
 
+        if (! $this->faking() && $sendable->isNotEmpty() && $this->circuitOpen()) {
+            $skipped = $sendable->values()->map(function (OutboundMessage $message): SentMessage {
+                $result = $this->circuitOpenResult($message->phone, $message->text);
+
+                $this->dispatchSent($result);
+
+                return $result;
+            });
+
+            return $this->applyBulkFallback($messages, $this->mergeRejected($messages, $rejected, $skipped), $fallback, $fallbackWhen);
+        }
+
         $sent = match (true) {
             $sendable->isEmpty() => new Collection,
             $this->faking() => $this->fakeSendMany($sendable->values()),
             default => $this->doSendMany($sendable->values()),
         };
 
-        if ($rejected === []) {
-            $primary = $sent;
-        } else {
-            $primary = new Collection;
-            $next = 0;
-
-            foreach ($messages->keys() as $index) {
-                $primary->push($rejected[$index] ?? $sent->get($next++));
-            }
+        if (! $this->faking() && $sent->isNotEmpty()) {
+            $sent->contains(fn (SentMessage $message): bool => $message->successful)
+                ? $this->recordBreakerSuccess()
+                : $this->recordBreakerFailure();
         }
 
-        return $this->applyBulkFallback($messages, $primary, $fallback, $fallbackWhen);
+        return $this->applyBulkFallback($messages, $this->mergeRejected($messages, $rejected, $sent), $fallback, $fallbackWhen);
+    }
+
+    /**
+     * Re-interleaves guard-rejected failures with the sent results at their
+     * original indexes.
+     *
+     * @param  Collection<int, OutboundMessage>  $messages
+     * @param  array<int, SentMessage>  $rejected
+     * @param  Collection<int, SentMessage>  $sent
+     * @return Collection<int, SentMessage>
+     */
+    private function mergeRejected(Collection $messages, array $rejected, Collection $sent): Collection
+    {
+        if ($rejected === []) {
+            return $sent;
+        }
+
+        $merged = new Collection;
+        $next = 0;
+
+        foreach ($messages->keys() as $index) {
+            $merged->push($rejected[$index] ?? $sent->get($next++));
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @return array{threshold: int, cooldown: int}|null null = breaker off
+     */
+    private function breakerConfig(): ?array
+    {
+        $config = $this->config['circuit_breaker'] ?? null;
+
+        if (! is_array($config) || ! is_numeric($config['threshold'] ?? null)) {
+            return null;
+        }
+
+        return [
+            'threshold' => max(1, (int) $config['threshold']),
+            'cooldown' => max(1, (int) ($config['cooldown'] ?? 60)),
+        ];
+    }
+
+    private function circuitOpen(): bool
+    {
+        if ($this->breakerConfig() === null) {
+            return false;
+        }
+
+        try {
+            return (bool) $this->cache->get($this->breakerKey().':open');
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function recordBreakerFailure(): void
+    {
+        $breaker = $this->breakerConfig();
+
+        if ($breaker === null) {
+            return;
+        }
+
+        try {
+            $key = $this->breakerKey();
+            $failures = (int) $this->cache->get($key, 0) + 1;
+
+            if ($failures >= $breaker['threshold']) {
+                $this->cache->put($key.':open', true, $breaker['cooldown']);
+                $this->cache->forget($key);
+
+                return;
+            }
+
+            // The counter expires with the cooldown so stale failures don't linger.
+            $this->cache->put($key, $failures, $breaker['cooldown']);
+        } catch (Throwable) {
+            // Cache trouble must not affect sending.
+        }
+    }
+
+    private function recordBreakerSuccess(): void
+    {
+        if ($this->breakerConfig() === null) {
+            return;
+        }
+
+        try {
+            $this->cache->forget($this->breakerKey());
+        } catch (Throwable) {
+            // Cache trouble must not affect sending.
+        }
+    }
+
+    private function breakerKey(): string
+    {
+        return sprintf('%s:%s:breaker', config('sms.cache.prefix', 'sms'), $this->name());
+    }
+
+    private function circuitOpenResult(string $phone, string $text): SentMessage
+    {
+        return SentMessage::failed(
+            $this->name(),
+            $phone,
+            $text,
+            sprintf('Circuit open for [%s]; send skipped until the cooldown passes.', $this->name()),
+        );
     }
 
     /**
