@@ -72,6 +72,19 @@ return [
     ],
 
     /*
+     | Runtime config overrides: FQCN implementing
+     | Uzbek\Sms\Contracts\ProviderConfigOverrides. The file config below
+     | stays the base; the source returns only the keys to change per
+     | provider (rotated credentials, enabled toggles, ...). The shipped
+     | Uzbek\Sms\Config\DatabaseProviderConfigOverrides reads the
+     | sms_provider_overrides table (publish the sms-overrides-migration
+     | tag), cached for config_overrides_ttl seconds. A failing source
+     | falls back to the file config with a warning.
+     */
+    'config_overrides' => null,
+    'config_overrides_ttl' => 60,
+
+    /*
      | Named message templates (:placeholders become wildcards for matching).
      | enforce=false only enables ->template('name', [...]) rendering;
      | enforce=true additionally blocks any builder text that matches no

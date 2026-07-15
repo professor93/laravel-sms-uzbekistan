@@ -75,6 +75,13 @@ final class SmsServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__.'/../database/migrations' => database_path('migrations'),
             ], 'sms-migrations');
+
+            // Opt-in: only for apps using DatabaseProviderConfigOverrides.
+            $this->publishes([
+                __DIR__.'/../database/optional/create_sms_provider_overrides_table.php' => database_path(
+                    sprintf('migrations/%s_create_sms_provider_overrides_table.php', date('Y_m_d_His')),
+                ),
+            ], 'sms-overrides-migration');
         }
     }
 

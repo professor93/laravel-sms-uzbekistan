@@ -7,8 +7,12 @@ namespace Uzbek\Sms;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 use Uzbek\Sms\Contracts\Driver;
+use Uzbek\Sms\Contracts\ProviderConfigOverrides;
 use Uzbek\Sms\Drivers\AbstractDriver;
+use Uzbek\Sms\Exceptions\SmsException;
 use Uzbek\Sms\Drivers\EskizDriver;
 use Uzbek\Sms\Drivers\PlayMobileDriver;
 use Uzbek\Sms\Drivers\SayqalDriver;
@@ -76,7 +80,8 @@ class DriverFactory
             throw UnknownProviderException::make($provider);
         }
 
-        $config = array_replace($base, $overrides);
+        // File config < dynamic source overrides < runtime overrides.
+        $config = array_replace($base, $this->dynamicOverrides($provider), $overrides);
 
         if (! ($config['enabled'] ?? true)) {
             throw DriverDisabledException::make($provider);
@@ -95,6 +100,42 @@ class DriverFactory
         $cache = $this->cache->store($this->config->get('sms.cache.store'));
 
         return new $class($class::resolveAuthenticator($config, $cache, $this->http), $this->http, $config, $cache);
+    }
+
+    /**
+     * Keys from the sms.config_overrides source, merged over the file config.
+     * Fails open to the file config — a broken source must not stop sending.
+     *
+     * @return array<string, mixed>
+     */
+    private function dynamicOverrides(string $provider): array
+    {
+        $class = $this->config->get('sms.config_overrides');
+
+        if (! is_string($class) || $class === '') {
+            return [];
+        }
+
+        try {
+            $source = app($class);
+
+            if (! $source instanceof ProviderConfigOverrides) {
+                throw new SmsException(sprintf('[%s] does not implement [%s].', $class, ProviderConfigOverrides::class));
+            }
+
+            return $source->overrides($provider);
+        } catch (Throwable $e) {
+            if (! $this->config->get('sms.silent')) {
+                Log::channel($this->config->get('sms.logging.channel'))->warning(sprintf(
+                    'SMS config overrides [%s] failed for provider [%s]; using the file config: %s',
+                    $class,
+                    $provider,
+                    $e->getMessage(),
+                ));
+            }
+
+            return [];
+        }
     }
 
     /**
