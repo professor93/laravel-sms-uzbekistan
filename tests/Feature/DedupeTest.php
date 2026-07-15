@@ -1,0 +1,65 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Support\Facades\Queue;
+use Uzbek\Sms\Data\OutboundMessage;
+use Uzbek\Sms\DriverFactory;
+use Uzbek\Sms\Facades\Sms;
+use Uzbek\Sms\Jobs\SendSmsJob;
+
+it('skips the second send carrying the same dedupe key', function () {
+    Sms::fake();
+
+    $first = Sms::to('+998901234567')->text('Kod: 1234')->dedupe('otp:42')->send();
+    $second = Sms::to('+998901234567')->text('Kod: 1234')->dedupe('otp:42')->send();
+
+    expect($first->successful)->toBeTrue()
+        ->and($second->successful)->toBeFalse()
+        ->and($second->errorMessage)->toContain('dedupe');
+
+    Sms::assertSentCount(1);
+});
+
+it('sends both messages when the keys differ', function () {
+    Sms::fake();
+
+    Sms::to('+998901234567')->text('A')->dedupe('otp:1')->send();
+    Sms::to('+998901234567')->text('B')->dedupe('otp:2')->send();
+
+    Sms::assertSentCount(2);
+});
+
+it('carries the dedupe key onto the queued job', function () {
+    Queue::fake();
+
+    Sms::to('+998901234567')->text('Salom')->dedupe('reg:7', 600)->queue();
+
+    Queue::assertPushed(SendSmsJob::class, fn (SendSmsJob $job): bool => $job->dedupeKey === 'reg:7'
+        && $job->dedupeTtl === 600);
+});
+
+it('a retried job with the same key sends only once', function () {
+    Sms::fake();
+
+    $job = new SendSmsJob('eskiz', '+998901234567', 'Kod: 9', [], null, 'otp:9');
+
+    $job->handle(app(DriverFactory::class));
+    $job->handle(app(DriverFactory::class));
+
+    Sms::assertSentCount(1);
+});
+
+it('dedupes a whole bulk batch', function () {
+    Sms::fake();
+
+    $messages = OutboundMessage::sameText(['+998901111111', '+998902222222'], 'S');
+
+    Sms::many($messages)->dedupe('campaign:5')->send();
+    $second = Sms::many($messages)->dedupe('campaign:5')->send();
+
+    Sms::assertSentCount(2);
+
+    expect($second)->toHaveCount(2)
+        ->and($second->every(fn ($m): bool => ! $m->successful))->toBeTrue();
+});

@@ -25,6 +25,8 @@ final class SendBulkSmsJob implements ShouldQueue
         public readonly string $provider,
         public readonly array $messages,
         public readonly ?string $fallback = null,
+        public readonly ?string $dedupeKey = null,
+        public readonly int $dedupeTtl = 86400,
     ) {}
 
     public function handle(DriverFactory $factory): void
@@ -35,6 +37,10 @@ final class SendBulkSmsJob implements ShouldQueue
         );
 
         $pending = $factory->make($this->provider)->many($messages);
+
+        if ($this->dedupeKey !== null) {
+            $pending->dedupe($this->dedupeKey, $this->dedupeTtl);
+        }
 
         $this->fallback === null
             ? $pending->withoutFallback()

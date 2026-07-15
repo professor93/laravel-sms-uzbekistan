@@ -5,14 +5,20 @@ declare(strict_types=1);
 namespace Uzbek\Sms\Concerns;
 
 use Closure;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 use Uzbek\Sms\Data\SentMessage;
 
 /**
- * Fallback, debug, and single-use state shared by the two pending builders.
- * The using class must expose a `$driver` property.
+ * Fallback, debug, dedupe, and single-use state shared by the two pending
+ * builders. The using class must expose a `$driver` property.
  */
 trait HasSendOptions
 {
+    private ?string $dedupeKey = null;
+
+    private int $dedupeTtl = 86400;
+
     private ?string $fallback = null;
 
     private bool $fallbackDisabled = false;
@@ -49,6 +55,18 @@ trait HasSendOptions
         return $this;
     }
 
+    /**
+     * At-most-once guard: the key is reserved before transport, so a retry
+     * (double click, requeued job) inside the TTL is skipped, not resent.
+     */
+    public function dedupe(string $key, int $ttl = 86400): self
+    {
+        $this->dedupeKey = $key;
+        $this->dedupeTtl = $ttl;
+
+        return $this;
+    }
+
     private function effectiveFallback(): ?string
     {
         if ($this->fallbackDisabled) {
@@ -56,5 +74,44 @@ trait HasSendOptions
         }
 
         return $this->fallback ?? $this->driver->defaultFallback();
+    }
+
+    /**
+     * True when this send may proceed. Fails open: an unavailable cache store
+     * must not stop messaging, losing dedupe protection is the lesser harm.
+     */
+    private function reserveDedupe(): bool
+    {
+        if ($this->dedupeKey === null) {
+            return true;
+        }
+
+        try {
+            return cache()->store(config('sms.cache.store'))->add(
+                sprintf('%s:dedupe:%s', config('sms.cache.prefix', 'sms'), $this->dedupeKey),
+                1,
+                $this->dedupeTtl,
+            );
+        } catch (Throwable $e) {
+            if (! config('sms.silent')) {
+                Log::channel(config('sms.logging.channel'))->warning(sprintf(
+                    'SMS dedupe check for key [%s] failed; sending anyway: %s',
+                    $this->dedupeKey,
+                    $e->getMessage(),
+                ));
+            }
+
+            return true;
+        }
+    }
+
+    private function duplicateResult(string $phone, string $text): SentMessage
+    {
+        return SentMessage::failed(
+            $this->driver->name(),
+            $phone,
+            $text,
+            sprintf('Skipped duplicate send (dedupe key [%s] already used).', $this->dedupeKey),
+        );
     }
 }

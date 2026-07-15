@@ -298,6 +298,17 @@ Sms::many($messages)->later(now()->setTime(9, 0), 'sms');  // marketing at 09:00
 
 The fallback provider is resolved at queue time; per-message options and runtime credentials travel with the job. Inside the job a provider failure becomes the usual `SentMessage::failed` + events — the job doesn't throw, so queue retries stay reserved for infrastructure errors. Two builder features are sync-only and throw a `LogicException` if queued: `debug()` and `useFallback()` with a Closure predicate.
 
+## Duplicate protection
+
+`dedupe(key, ttl = 86400)` on either builder makes a send at-most-once per key: the key is reserved in the cache before transport, so a double-click, a duplicated webhook, or a retried queue job inside the TTL is skipped instead of resent — the skipped result comes back unsuccessful with a "duplicate" message, and no fallback fires for it:
+
+```php
+Sms::to($phone)->text("Kod: {$code}")->dedupe("otp:{$userId}", 300)->send();
+Sms::to($phone)->text("Kod: {$code}")->dedupe("otp:{$userId}", 300)->queue(); // key checked when the job runs
+```
+
+If the cache store is unavailable the send proceeds without protection (a warning is logged) — losing dedupe beats losing messaging.
+
 ## Segments and encoding
 
 One Cyrillic character switches an SMS from GSM-7 (160 chars/segment) to UCS-2 (70 chars/segment) — doubling the cost of a "160-char" message without warning. Check before or after sending:

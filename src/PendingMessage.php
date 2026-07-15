@@ -102,6 +102,8 @@ final class PendingMessage
             text: (string) $this->text,
             overrides: $this->overrides,
             fallback: $this->effectiveFallback(),
+            dedupeKey: $this->dedupeKey,
+            dedupeTtl: $this->dedupeTtl,
         );
 
         $this->sent = true;
@@ -123,6 +125,12 @@ final class PendingMessage
     public function send(): SentMessage
     {
         $this->guardReadyToSend();
+
+        if (! $this->reserveDedupe()) {
+            $this->sent = true;
+
+            return $this->duplicateResult($this->phone, $this->text);
+        }
 
         // Resolving the primary can throw for a disabled/unknown override
         // driver — a config error, so the builder must stay reusable.

@@ -31,6 +31,8 @@ final class SendSmsJob implements ShouldQueue
         public readonly string $text,
         public readonly array $overrides = [],
         public readonly ?string $fallback = null,
+        public readonly ?string $dedupeKey = null,
+        public readonly int $dedupeTtl = 86400,
     ) {}
 
     public function handle(DriverFactory $factory): void
@@ -39,6 +41,10 @@ final class SendSmsJob implements ShouldQueue
 
         if ($this->overrides !== []) {
             $pending->as($this->overrides);
+        }
+
+        if ($this->dedupeKey !== null) {
+            $pending->dedupe($this->dedupeKey, $this->dedupeTtl);
         }
 
         $this->fallback === null

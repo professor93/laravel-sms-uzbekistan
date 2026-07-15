@@ -50,6 +50,8 @@ final class PendingBulkMessage
                 ->map(fn (OutboundMessage $message): array => ['phone' => $message->phone, 'text' => $message->text])
                 ->all(),
             fallback: $this->effectiveFallback(),
+            dedupeKey: $this->dedupeKey,
+            dedupeTtl: $this->dedupeTtl,
         );
 
         $this->sent = true;
@@ -78,6 +80,12 @@ final class PendingBulkMessage
         }
 
         $this->sent = true;
+
+        if (! $this->reserveDedupe()) {
+            return Collection::make($this->messages)
+                ->values()
+                ->map(fn (OutboundMessage $message): SentMessage => $this->duplicateResult($message->phone, $message->text));
+        }
 
         $fallback = $this->effectiveFallback();
 
