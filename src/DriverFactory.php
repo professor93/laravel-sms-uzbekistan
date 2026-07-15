@@ -17,7 +17,7 @@ use Uzbek\Sms\Exceptions\DriverDisabledException;
 use Uzbek\Sms\Exceptions\UnknownDriverException;
 use Uzbek\Sms\Exceptions\UnknownProviderException;
 
-final class DriverFactory
+class DriverFactory
 {
     /**
      * @var array<string, class-string<Drivers\AbstractDriver>>

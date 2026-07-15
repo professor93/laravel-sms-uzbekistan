@@ -819,6 +819,31 @@ Everything else — events, logging, retries, prefix rules, the fluent builder, 
 
 ## Testing
 
+### In your application
+
+`Sms::fake()` swaps every provider for a recording stub — no HTTP, no auth, no events, no log rows — and unlocks assertions on the facade:
+
+```php
+use Uzbek\Sms\Facades\Sms;
+
+public function test_welcome_sms_is_sent(): void
+{
+    Sms::fake();
+
+    $this->post('/register', [...]);
+
+    Sms::assertSent(fn ($m) => $m->phone === '+998901234567' && str_contains($m->text, 'Xush kelibsiz'));
+    Sms::assertSentCount(1);
+    Sms::assertSentTo('998901234567');   // digit-based, format-insensitive
+    // Sms::assertNothingSent();
+    // Sms::sent()                       // Collection<SentMessage> for custom expectations
+}
+```
+
+Named providers, the `sms()` helper, per-provider facades and the fluent builders all route through the fake automatically.
+
+### The package itself
+
 ```bash
 composer test
 ```
