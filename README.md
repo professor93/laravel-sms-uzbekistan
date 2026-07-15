@@ -214,7 +214,7 @@ Resolved once per send call — instant rule changes; cache inside the class. Ne
 
 Routes register at `POST {SMS_WEBHOOK_PATH}/{provider}` when `SMS_WEBHOOK_ENABLED=true`. Outside `web`/CSRF (providers POST server-to-server); middleware from `sms.webhook.middleware`. Every verified webhook dispatches `DeliveryStatusUpdated` per report (updates `sms_logs` when database logging is on); without a handler it is also written to the log.
 
-**PlayMobile** — register `https://your-app.uz/sms/webhooks/playmobile?token=<PLAYMOBILE_WEBHOOK_SECRET>` in the cabinet. Empty secret = token check skipped; set = enforced. Optional `allowed_ips` pinning. Bad token/IP → 403.
+**PlayMobile** — register `https://your-app.uz/sms/webhooks/playmobile?token=<PLAYMOBILE_WEBHOOK_SECRET>` in the cabinet. Empty secret = token check skipped; set = enforced. Optional `allowed_ips` pinning — exact IPs and CIDR ranges, IPv4 + IPv6 (`['185.8.212.47', '10.0.0.0/8', '2001:db8::/32']`). Bad token/IP → 403.
 
 **Eskiz** — set `ESKIZ_CALLBACK_ENABLED=true` and every send carries `callback_url`: the explicit `ESKIZ_CALLBACK_URL`, or the package webhook URL (needs `SMS_WEBHOOK_ENABLED=true`), with `?token=` appended when `ESKIZ_WEBHOOK_SECRET` is set. Same token/IP guards on intake.
 

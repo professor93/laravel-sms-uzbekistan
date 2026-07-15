@@ -108,7 +108,7 @@ return [
      | 'prefix_rules' => FQCN                            per-provider dynamic prefix source
      | 'health_check' => FQCN                            per-provider Sms::health() probe
      | 'webhook_handler' => FQCN                         app-side webhook processor
-     | 'webhook_secret' / 'allowed_ips'                  incoming webhook guards
+     | 'webhook_secret' / 'allowed_ips'                  incoming webhook guards (IPs or CIDR, v4+v6)
      | 'http_options' => []                              raw Guzzle options (proxy, timeout, ...)
      */
     'providers' => [

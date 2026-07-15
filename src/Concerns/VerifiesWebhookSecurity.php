@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Uzbek\Sms\Concerns;
 
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\IpUtils;
 use Uzbek\Sms\Exceptions\SmsException;
 
 /**
  * Shared webhook guards for drivers: a ?token= shared secret and an IP
- * allowlist, each enforced only when configured on the provider.
+ * allowlist (exact IPs and CIDR ranges, IPv4 + IPv6), each enforced only
+ * when configured on the provider.
  */
 trait VerifiesWebhookSecurity
 {
@@ -24,9 +26,9 @@ trait VerifiesWebhookSecurity
             throw new SmsException(sprintf('[%s] webhook token mismatch.', $this->name()));
         }
 
-        $allowedIps = (array) ($this->config['allowed_ips'] ?? []);
+        $allowedIps = array_values(array_filter((array) ($this->config['allowed_ips'] ?? []), 'is_string'));
 
-        if ($allowedIps !== [] && ! in_array($request->ip(), $allowedIps, true)) {
+        if ($allowedIps !== [] && ! IpUtils::checkIp((string) $request->ip(), $allowedIps)) {
             throw new SmsException(sprintf('[%s] webhook from unexpected IP.', $this->name()));
         }
     }

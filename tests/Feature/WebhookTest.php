@@ -84,6 +84,44 @@ it('rejects a webhook from an unlisted IP when the allowlist is set', function (
     ])->assertForbidden();
 });
 
+it('accepts an exact allowed IP', function () {
+    config()->set('sms.providers.playmobile.allowed_ips', ['127.0.0.1']);
+
+    $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
+        'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
+    ])->assertOk();
+});
+
+it('accepts an IP inside an allowed CIDR range', function () {
+    config()->set('sms.providers.playmobile.allowed_ips', ['127.0.0.0/8']);
+
+    $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
+        'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
+    ])->assertOk();
+});
+
+it('rejects an IP outside the allowed CIDR range', function () {
+    config()->set('sms.providers.playmobile.allowed_ips', ['10.0.0.0/8']);
+
+    $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
+        'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
+    ])->assertForbidden();
+});
+
+it('matches IPv6 addresses against IPv6 CIDR ranges', function () {
+    config()->set('sms.providers.playmobile.allowed_ips', ['2001:db8::/32']);
+
+    $this->withServerVariables(['REMOTE_ADDR' => '2001:db8::10'])
+        ->postJson('/sms/webhooks/playmobile?token=hook-secret', [
+            'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
+        ])->assertOk();
+
+    $this->withServerVariables(['REMOTE_ADDR' => '2001:db9::10'])
+        ->postJson('/sms/webhooks/playmobile?token=hook-secret', [
+            'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
+        ])->assertForbidden();
+});
+
 it('returns 404 for a driver that does not handle webhooks', function () {
     $this->postJson('/sms/webhooks/textup?token=hook-secret', [])->assertNotFound();
 });
