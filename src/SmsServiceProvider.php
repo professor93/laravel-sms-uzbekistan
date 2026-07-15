@@ -64,6 +64,10 @@ final class SmsServiceProvider extends ServiceProvider
         $this->registerListeners();
 
         if ($this->app->runningInConsole()) {
+            $this->commands([
+                Console\PruneSmsLogsCommand::class,
+            ]);
+
             $this->publishes([
                 __DIR__.'/../config/sms.php' => config_path('sms.php'),
             ], 'sms-config');

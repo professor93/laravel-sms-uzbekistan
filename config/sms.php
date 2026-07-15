@@ -62,6 +62,8 @@ return [
         'database' => (bool) env('SMS_LOG_DATABASE', false),
         'debug' => (bool) env('SMS_LOG_DEBUG', false),
         'channel' => env('SMS_LOG_CHANNEL'),
+        // Retention for `sms:prune` (schedule it yourself); null = keep forever.
+        'prune_after_days' => env('SMS_LOG_PRUNE_DAYS'),
     ],
 
     'cache' => [
