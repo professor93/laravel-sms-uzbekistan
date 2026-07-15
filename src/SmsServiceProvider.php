@@ -9,6 +9,8 @@ use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Notifications\ChannelManager;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\ServiceProvider;
 use Uzbek\Sms\Contracts\Driver;
 use Uzbek\Sms\Debug\DebugCollector;
@@ -47,6 +49,12 @@ final class SmsServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        Notification::resolved(function (ChannelManager $service): void {
+            $service->extend('sms', fn (Application $app): Notifications\SmsChannel => new Notifications\SmsChannel(
+                $app->make(DriverFactory::class),
+            ));
+        });
+
         if (config('sms.webhook.enabled')) {
             $this->loadRoutesFrom(__DIR__.'/../routes/webhooks.php');
         }

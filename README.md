@@ -301,6 +301,38 @@ $info->perSegment;  // 70
 $message->segments(); // same SegmentInfo from any SentMessage
 ```
 
+## Notifications channel
+
+Register nothing — the `sms` channel is ready once the package is installed:
+
+```php
+use Illuminate\Notifications\Notification;
+use Uzbek\Sms\Notifications\SmsMessage;
+
+class OrderShipped extends Notification
+{
+    public function via(object $notifiable): array
+    {
+        return ['sms'];
+    }
+
+    // a plain string uses the default provider...
+    public function toSms(object $notifiable): string|SmsMessage
+    {
+        return 'Buyurtmangiz jo\'natildi!';
+
+        // ...or take full control:
+        return SmsMessage::create('Kod: 1234')
+            ->provider('playmobile')
+            ->from('3700')
+            ->otp()
+            ->useFallback('eskiz');   // or ->withoutFallback()
+    }
+}
+```
+
+The recipient comes from `routeNotificationForSms()` on the notifiable (or `SmsMessage->to()` to override); on-demand works too: `Notification::route('sms', '+998901234567')->notify(...)`. A missing route or missing `toSms()` skips the notification with a logged warning — it never throws.
+
 ## Capability detection
 
 Not every provider supports every feature. Detect capabilities with `instanceof` instead of assuming:
