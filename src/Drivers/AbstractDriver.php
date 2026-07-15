@@ -13,6 +13,7 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use Throwable;
 use Uzbek\Sms\Contracts\Authenticator;
@@ -125,7 +126,7 @@ abstract class AbstractDriver implements Driver
         $sent = match (true) {
             $sendable->isEmpty() => new Collection,
             $this->faking() => $this->fakeSendMany($sendable->values()),
-            default => $this->doSendMany($sendable->values()),
+            default => $this->chunkedSendMany($sendable->values()),
         };
 
         if (! $this->faking() && $sent->isNotEmpty()) {
@@ -135,6 +136,40 @@ abstract class AbstractDriver implements Driver
         }
 
         return $this->applyBulkFallback($messages, $this->mergeRejected($messages, $rejected, $sent), $fallback, $fallbackWhen);
+    }
+
+    /**
+     * Opt-in bulk pacing: `bulk.chunk` splits the batch, `bulk.per_second`
+     * caps throughput (implying a chunk size when none is set). Without the
+     * config, one call to doSendMany — the old behavior.
+     *
+     * @param  Collection<int, OutboundMessage>  $messages
+     * @return Collection<int, SentMessage>
+     */
+    private function chunkedSendMany(Collection $messages): Collection
+    {
+        $perSecond = max(0, (int) ($this->config['bulk']['per_second'] ?? 0));
+        $chunk = max(0, (int) ($this->config['bulk']['chunk'] ?? 0));
+
+        if ($chunk === 0 && $perSecond > 0) {
+            $chunk = $perSecond;
+        }
+
+        if ($chunk === 0 || $messages->count() <= $chunk) {
+            return $this->doSendMany($messages);
+        }
+
+        $results = new Collection;
+
+        foreach ($messages->chunk($chunk)->values() as $index => $batch) {
+            if ($index > 0 && $perSecond > 0) {
+                Sleep::for($chunk / $perSecond)->seconds();
+            }
+
+            $results = $results->concat($this->doSendMany($batch->values()));
+        }
+
+        return $results->values();
     }
 
     /**

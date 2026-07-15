@@ -572,6 +572,21 @@ $factory->make('eskiz');
 
 A third exception, `UnknownDriverException`, covers the narrower case where the provider block resolves but its `driver` key names neither a built-in driver nor a valid `AbstractDriver` subclass (see [Custom driver](#custom-driver)). All three extend `Uzbek\Sms\Exceptions\SmsException`. A disabled *default* provider throws on the first `app(Driver::class)` resolution, and webhook requests addressed to a disabled or unknown provider return 404 without leaking why.
 
+## Bulk chunking and rate limiting
+
+Off by default (one native batch request, as before). Opt in per provider for large campaigns:
+
+```php
+'providers' => [
+    'eskiz' => [
+        // ...
+        'bulk' => ['chunk' => 500, 'per_second' => 100],
+    ],
+],
+```
+
+`chunk` splits `sendMany()` into batches of that size; `per_second` paces them (and implies a chunk size when `chunk` is not set). Result order and per-message events are preserved across chunks.
+
 ## Restricting recipients by prefix
 
 Each provider block accepts a `prefixes` section — an allowed list, a blocked list, or both. By default both are empty and every number goes through.
