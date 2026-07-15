@@ -98,16 +98,19 @@ final class DriverFactory
     }
 
     /**
+     * Resolves an alias through the built-in map extended by the sms.drivers
+     * config map (same alias overrides the built-in), or accepts a direct FQCN.
+     *
      * @return class-string<Drivers\AbstractDriver>
      */
     private function driverClass(string $driver): string
     {
-        if (isset(self::DRIVERS[$driver])) {
-            return self::DRIVERS[$driver];
-        }
+        $custom = array_filter((array) $this->config->get('sms.drivers', []), 'is_string');
 
-        if (is_subclass_of($driver, AbstractDriver::class)) {
-            return $driver;
+        $class = array_replace(self::DRIVERS, $custom)[$driver] ?? $driver;
+
+        if (is_subclass_of($class, AbstractDriver::class)) {
+            return $class;
         }
 
         throw UnknownDriverException::make($driver);

@@ -11,16 +11,18 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Throwable;
 use Uzbek\Sms\Authenticators\BasicAuthenticator;
+use Uzbek\Sms\Concerns\VerifiesWebhookSecurity;
 use Uzbek\Sms\Contracts\Authenticator;
 use Uzbek\Sms\Contracts\HandlesWebhooks;
 use Uzbek\Sms\Data\DeliveryReport;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Enums\DeliveryStatus;
-use Uzbek\Sms\Exceptions\SmsException;
 
 final class PlayMobileDriver extends AbstractDriver implements HandlesWebhooks
 {
+    use VerifiesWebhookSecurity;
+
     public static function resolveAuthenticator(
         array $config,
         CacheRepository $cache,
@@ -47,18 +49,7 @@ final class PlayMobileDriver extends AbstractDriver implements HandlesWebhooks
 
     public function verifyWebhook(Request $request): void
     {
-        $secret = (string) ($this->config['webhook_secret'] ?? '');
-
-        // No secret configured -> token check is skipped; a set secret is enforced.
-        if ($secret !== '' && ! hash_equals($secret, (string) $request->query('token', ''))) {
-            throw new SmsException('PlayMobile webhook token mismatch.');
-        }
-
-        $allowedIps = $this->config['allowed_ips'] ?? [];
-
-        if ($allowedIps !== [] && ! in_array($request->ip(), $allowedIps, true)) {
-            throw new SmsException('PlayMobile webhook from unexpected IP.');
-        }
+        $this->verifyWebhookSecurity($request);
     }
 
     public function parseWebhook(Request $request): iterable

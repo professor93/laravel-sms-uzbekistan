@@ -148,6 +148,80 @@ it('handles a redirect response without a retry-callback type error', function (
     expect($message)->toBeInstanceOf(\Uzbek\Sms\Data\SentMessage::class);
 });
 
+it('omits callback_url when callback sending is disabled even if a url is configured', function () {
+    config()->set('sms.providers.eskiz.callback_url', 'https://app.example.test/sms/callback');
+
+    Http::fake([
+        'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
+        'notify.eskiz.uz/api/message/sms/send' => Http::response(['id' => 1, 'status' => 'waiting']),
+    ]);
+
+    eskiz()->send('+998901234567', 'Salom');
+
+    Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), 'message/sms/send')
+        && array_key_exists('callback_url', $request->data()));
+});
+
+it('sends the explicit callback_url when callback sending is enabled', function () {
+    config()->set('sms.providers.eskiz.callback_enabled', true);
+    config()->set('sms.providers.eskiz.callback_url', 'https://app.example.test/sms/callback');
+
+    Http::fake([
+        'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
+        'notify.eskiz.uz/api/message/sms/send' => Http::response(['id' => 1, 'status' => 'waiting']),
+    ]);
+
+    eskiz()->send('+998901234567', 'Salom');
+
+    Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'message/sms/send')
+        && $request['callback_url'] === 'https://app.example.test/sms/callback');
+});
+
+it('falls back to the package webhook url with token when no explicit callback_url is set', function () {
+    config()->set('sms.providers.eskiz.callback_enabled', true);
+    config()->set('sms.providers.eskiz.webhook_secret', 'esk-secret');
+
+    Http::fake([
+        'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
+        'notify.eskiz.uz/api/message/sms/send' => Http::response(['id' => 1, 'status' => 'waiting']),
+    ]);
+
+    eskiz()->send('+998901234567', 'Salom');
+
+    Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'message/sms/send')
+        && $request['callback_url'] === 'http://localhost/sms/webhooks/eskiz?token=esk-secret');
+});
+
+it('omits callback_url when webhook routing is disabled and no explicit url is set', function () {
+    config()->set('sms.webhook.enabled', false);
+    config()->set('sms.providers.eskiz.callback_enabled', true);
+
+    Http::fake([
+        'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
+        'notify.eskiz.uz/api/message/sms/send' => Http::response(['id' => 1, 'status' => 'waiting']),
+    ]);
+
+    eskiz()->send('+998901234567', 'Salom');
+
+    Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), 'message/sms/send')
+        && array_key_exists('callback_url', $request->data()));
+});
+
+it('includes callback_url in batch sends when callback sending is enabled', function () {
+    config()->set('sms.providers.eskiz.callback_enabled', true);
+    config()->set('sms.providers.eskiz.callback_url', 'https://app.example.test/sms/callback');
+
+    Http::fake([
+        'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
+        'notify.eskiz.uz/api/message/sms/send-batch' => Http::response(['id' => 77]),
+    ]);
+
+    eskiz()->sendMany(OutboundMessage::sameText(['+998901111111', '+998902222222'], 'Salom'));
+
+    Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'send-batch')
+        && $request['callback_url'] === 'https://app.example.test/sms/callback');
+});
+
 it('pulls delivery status by provider message id', function () {
     Http::fake([
         'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),

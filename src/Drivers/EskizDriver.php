@@ -6,18 +6,24 @@ namespace Uzbek\Sms\Drivers;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Throwable;
 use Uzbek\Sms\Authenticators\LoginTokenAuthenticator;
+use Uzbek\Sms\Concerns\VerifiesWebhookSecurity;
 use Uzbek\Sms\Contracts\Authenticator;
 use Uzbek\Sms\Contracts\ChecksDeliveryStatus;
+use Uzbek\Sms\Contracts\HandlesWebhooks;
+use Uzbek\Sms\Data\DeliveryReport;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
 use Uzbek\Sms\Enums\DeliveryStatus;
 
-final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus
+final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus, HandlesWebhooks
 {
+    use VerifiesWebhookSecurity;
+
     private const DEFAULT_TOKEN_TTL = 2592000;
 
     public static function resolveAuthenticator(
@@ -50,7 +56,7 @@ final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus
             'mobile_phone' => $phone,
             'message' => $text,
             'from' => $this->config['from'] ?? null,
-            'callback_url' => $this->config['callback_url'] ?? null,
+            'callback_url' => $this->callbackUrl(),
         ], fn (mixed $value): bool => $value !== null));
 
         $id = $response->json('id');
@@ -74,6 +80,30 @@ final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus
         }
 
         return $this->finalizeBulk($results);
+    }
+
+    public function verifyWebhook(Request $request): void
+    {
+        // Eskiz callbacks carry no signature; enforcement relies on the shared
+        // secret token and/or IP allowlist when configured.
+        $this->verifyWebhookSecurity($request);
+    }
+
+    public function parseWebhook(Request $request): iterable
+    {
+        $payload = $request->all();
+
+        $id = $payload['message_id'] ?? $payload['user_sms_id'] ?? null;
+
+        if ($id === null || $id === '') {
+            return;
+        }
+
+        yield new DeliveryReport(
+            providerMessageId: (string) $id,
+            status: $this->mapStatus((string) ($payload['status'] ?? '')),
+            raw: $payload,
+        );
     }
 
     public function checkStatus(string $providerMessageId): DeliveryStatus
@@ -100,6 +130,7 @@ final class EskizDriver extends AbstractDriver implements ChecksDeliveryStatus
         $response = $this->http()->post('message/sms/send-batch', array_filter([
             'messages' => $entries->all(),
             'from' => $this->config['from'] ?? null,
+            'callback_url' => $this->callbackUrl(),
         ], fn (mixed $value): bool => $value !== null));
 
         // TODO: Eskiz batch javobini real API bilan tekshirish

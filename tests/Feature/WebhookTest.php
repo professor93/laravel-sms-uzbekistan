@@ -3,9 +3,16 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
+use Psr\Log\LoggerInterface;
 use Uzbek\Sms\Enums\DeliveryStatus;
 use Uzbek\Sms\Events\DeliveryStatusUpdated;
 use Uzbek\Sms\Models\SmsLog;
+use Uzbek\Sms\Tests\Support\RecordingWebhookHandler;
+
+beforeEach(function (): void {
+    RecordingWebhookHandler::$calls = [];
+});
 
 it('accepts a verified webhook and dispatches DeliveryStatusUpdated', function () {
     Event::fake([DeliveryStatusUpdated::class]);
@@ -91,4 +98,92 @@ it('returns 404 for a disabled driver', function () {
     $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
         'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
     ])->assertNotFound();
+});
+
+it('invokes a configured webhook handler with the parsed reports', function () {
+    config()->set('sms.providers.playmobile.webhook_handler', RecordingWebhookHandler::class);
+
+    $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
+        'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
+    ])->assertOk();
+
+    expect(RecordingWebhookHandler::$calls)->toHaveCount(1);
+
+    $call = RecordingWebhookHandler::$calls[0];
+
+    expect($call['provider'])->toBe('playmobile')
+        ->and($call['reports'])->toHaveCount(1)
+        ->and($call['reports'][0]->providerMessageId)->toBe('MSG-1')
+        ->and($call['reports'][0]->status)->toBe(DeliveryStatus::Delivered);
+});
+
+it('still dispatches DeliveryStatusUpdated when a handler is configured', function () {
+    Event::fake([DeliveryStatusUpdated::class]);
+
+    config()->set('sms.providers.playmobile.webhook_handler', RecordingWebhookHandler::class);
+
+    $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
+        'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
+    ])->assertOk();
+
+    Event::assertDispatched(DeliveryStatusUpdated::class);
+});
+
+it('serves webhooks for a driver without HandlesWebhooks when a handler is configured', function () {
+    config()->set('sms.providers.textup.webhook_handler', RecordingWebhookHandler::class);
+
+    $this->postJson('/sms/webhooks/textup', ['event' => 'delivered', 'id' => 'X1'])->assertOk();
+
+    expect(RecordingWebhookHandler::$calls)->toHaveCount(1)
+        ->and(RecordingWebhookHandler::$calls[0]['reports'])->toBe([])
+        ->and(RecordingWebhookHandler::$calls[0]['payload'])->toBe(['event' => 'delivered', 'id' => 'X1']);
+});
+
+it('returns 500 when the configured handler does not implement WebhookHandler', function () {
+    config()->set('sms.providers.playmobile.webhook_handler', stdClass::class);
+
+    $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
+        'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
+    ])->assertStatus(500);
+});
+
+it('logs the webhook by default when no handler is configured', function () {
+    $entries = [];
+    $channel = Mockery::mock(LoggerInterface::class);
+    $channel->shouldReceive('info')->andReturnUsing(function (string $message, array $context = []) use (&$entries): void {
+        $entries[] = compact('message', 'context');
+    });
+
+    Log::partialMock()->shouldReceive('channel')->with(null)->andReturn($channel);
+
+    $this->postJson('/sms/webhooks/playmobile?token=hook-secret', [
+        'messages' => [['message-id' => 'MSG-1', 'status' => 'Delivered']],
+    ])->assertOk();
+
+    expect($entries)->toHaveCount(1)
+        ->and($entries[0]['context']['provider'])->toBe('playmobile');
+});
+
+it('accepts an eskiz delivery callback and dispatches DeliveryStatusUpdated', function () {
+    Event::fake([DeliveryStatusUpdated::class]);
+
+    $this->postJson('/sms/webhooks/eskiz', [
+        'message_id' => '4385062',
+        'user_sms_id' => 'ulid-1',
+        'status' => 'DELIVRD',
+    ])->assertOk();
+
+    Event::assertDispatched(DeliveryStatusUpdated::class, fn (DeliveryStatusUpdated $event): bool => $event->provider === 'eskiz'
+        && $event->providerMessageId === '4385062'
+        && $event->status === DeliveryStatus::Delivered);
+});
+
+it('enforces the eskiz webhook token once a secret is configured', function () {
+    config()->set('sms.providers.eskiz.webhook_secret', 'esk-secret');
+
+    $this->postJson('/sms/webhooks/eskiz', ['message_id' => '1', 'status' => 'DELIVRD'])
+        ->assertForbidden();
+
+    $this->postJson('/sms/webhooks/eskiz?token=esk-secret', ['message_id' => '1', 'status' => 'DELIVRD'])
+        ->assertOk();
 });

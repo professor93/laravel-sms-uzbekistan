@@ -16,6 +16,7 @@ use Illuminate\Support\Str;
 use Throwable;
 use Uzbek\Sms\Contracts\Authenticator;
 use Uzbek\Sms\Contracts\Driver;
+use Uzbek\Sms\Contracts\PrefixRules;
 use Uzbek\Sms\Contracts\SupportsBulkFallback;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\Data\SentMessage;
@@ -23,11 +24,15 @@ use Uzbek\Sms\Debug\DebugCollector;
 use Uzbek\Sms\DriverFactory;
 use Uzbek\Sms\Events\SmsSent;
 use Uzbek\Sms\Exceptions\ProhibitedPhoneException;
+use Uzbek\Sms\Exceptions\SmsException;
 use Uzbek\Sms\PendingBulkMessage;
 use Uzbek\Sms\PendingMessage;
 
 abstract class AbstractDriver implements Driver
 {
+    /** @var array{allowed: list<string>, blocked: list<string>} */
+    private array $dynamicPrefixes = ['allowed' => [], 'blocked' => []];
+
     /**
      * @param  array<string, mixed>  $config
      */
@@ -40,6 +45,8 @@ abstract class AbstractDriver implements Driver
 
     final public function send(string $phone, string $text): SentMessage
     {
+        $this->loadDynamicPrefixes();
+
         try {
             $this->guardPhone($phone);
 
@@ -62,6 +69,8 @@ abstract class AbstractDriver implements Driver
      */
     final public function sendMany(iterable $messages, ?string $fallback = null, ?Closure $fallbackWhen = null): Collection
     {
+        $this->loadDynamicPrefixes();
+
         $messages = Collection::make($messages)->values();
 
         $rejected = [];
@@ -272,6 +281,39 @@ abstract class AbstractDriver implements Driver
         return is_string($fallback) && $fallback !== '' ? $fallback : null;
     }
 
+    /**
+     * Delivery-callback URL for outbound payloads: null (omit) unless the
+     * provider opts in with callback_enabled; an explicit callback_url wins
+     * over the package webhook route.
+     */
+    protected function callbackUrl(): ?string
+    {
+        if (! ($this->config['callback_enabled'] ?? false)) {
+            return null;
+        }
+
+        $url = $this->config['callback_url'] ?? null;
+
+        if (is_string($url) && $url !== '') {
+            return $url;
+        }
+
+        return $this->webhookUrl();
+    }
+
+    private function webhookUrl(): ?string
+    {
+        if (! config('sms.webhook.enabled')) {
+            return null;
+        }
+
+        $url = route('sms.webhook', ['provider' => $this->name()]);
+
+        $secret = (string) ($this->config['webhook_secret'] ?? '');
+
+        return $secret === '' ? $url : $url.'?token='.urlencode($secret);
+    }
+
     abstract protected function doSend(string $phone, string $text): SentMessage;
 
     /**
@@ -339,10 +381,50 @@ abstract class AbstractDriver implements Driver
     {
         $prefixes = array_map(
             fn (mixed $prefix): string => preg_replace('/\D+/', '', (string) $prefix) ?? '',
-            (array) ($this->config['prefixes'][$list] ?? []),
+            array_merge((array) ($this->config['prefixes'][$list] ?? []), $this->dynamicPrefixes[$list]),
         );
 
-        return array_values(array_filter($prefixes, fn (string $prefix): bool => $prefix !== ''));
+        return array_values(array_unique(array_filter($prefixes, fn (string $prefix): bool => $prefix !== '')));
+    }
+
+    /**
+     * Merges in lists from the configured PrefixRules class (per-provider
+     * `prefix_rules` key, else the global `sms.prefix_rules`). Runs once per
+     * send call so rule changes apply without rebuilding the driver. Fails
+     * open to the static config lists — an unavailable rules source must not
+     * take messaging down, so keep hard legal blocks in the config.
+     */
+    private function loadDynamicPrefixes(): void
+    {
+        $this->dynamicPrefixes = ['allowed' => [], 'blocked' => []];
+
+        $class = $this->config['prefix_rules'] ?? config('sms.prefix_rules');
+
+        if (! is_string($class) || $class === '') {
+            return;
+        }
+
+        try {
+            $rules = app($class);
+
+            if (! $rules instanceof PrefixRules) {
+                throw new SmsException(sprintf('[%s] does not implement [%s].', $class, PrefixRules::class));
+            }
+
+            $this->dynamicPrefixes = [
+                'allowed' => array_values($rules->allowlist($this->name())),
+                'blocked' => array_values($rules->blocklist($this->name())),
+            ];
+        } catch (Throwable $e) {
+            if (! config('sms.silent')) {
+                Log::channel(config('sms.logging.channel'))->warning(sprintf(
+                    'SMS prefix rules [%s] failed for provider [%s]; using the static config lists only: %s',
+                    $class,
+                    $this->name(),
+                    $e->getMessage(),
+                ));
+            }
+        }
     }
 
     /**

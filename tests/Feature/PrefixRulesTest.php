@@ -5,11 +5,19 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Psr\Log\LoggerInterface;
 use Uzbek\Sms\Data\OutboundMessage;
 use Uzbek\Sms\DriverFactory;
 use Uzbek\Sms\Enums\DeliveryStatus;
 use Uzbek\Sms\Events\SmsSent;
 use Uzbek\Sms\Models\SmsLog;
+use Uzbek\Sms\Tests\Support\BlockEverythingPrefixRules;
+use Uzbek\Sms\Tests\Support\FakePrefixRules;
+
+beforeEach(function (): void {
+    FakePrefixRules::reset();
+});
 
 it('rejects a blocked prefix without contacting the provider', function () {
     config()->set('sms.providers.eskiz.prefixes', ['blocked' => ['99897']]);
@@ -147,4 +155,155 @@ it('normalizes prefixes and phones before matching', function () {
     expect($message->successful)->toBeFalse();
 
     Http::assertNothingSent();
+});
+
+it('blocks a prefix supplied by a dynamic rules class', function () {
+    FakePrefixRules::$rules = ['eskiz' => ['blocked' => ['99897']]];
+    config()->set('sms.prefix_rules', FakePrefixRules::class);
+
+    Http::fake();
+
+    $message = app(DriverFactory::class)->make('eskiz')->send('+998971234567', 'Salom');
+
+    expect($message->successful)->toBeFalse()
+        ->and($message->errorMessage)->toContain('blocked prefix');
+
+    Http::assertNothingSent();
+});
+
+it('restricts to an allowed list supplied by a dynamic rules class', function () {
+    FakePrefixRules::$rules = ['eskiz' => ['allowed' => ['99890']]];
+    config()->set('sms.prefix_rules', FakePrefixRules::class);
+
+    Http::fake();
+
+    $message = app(DriverFactory::class)->make('eskiz')->send('+998331234567', 'Salom');
+
+    expect($message->successful)->toBeFalse()
+        ->and($message->errorMessage)->toContain('does not match any allowed prefix');
+
+    Http::assertNothingSent();
+});
+
+it('merges dynamic rules with the static config lists', function () {
+    config()->set('sms.providers.eskiz.prefixes', ['blocked' => ['99895']]);
+    FakePrefixRules::$rules = ['eskiz' => ['blocked' => ['99897']]];
+    config()->set('sms.prefix_rules', FakePrefixRules::class);
+
+    Http::fake();
+
+    $driver = app(DriverFactory::class)->make('eskiz');
+
+    expect($driver->send('+998951234567', 'Salom')->successful)->toBeFalse()
+        ->and($driver->send('+998971234567', 'Salom')->successful)->toBeFalse();
+
+    Http::assertNothingSent();
+});
+
+it('prefers a per-provider prefix_rules class over the global one', function () {
+    config()->set('sms.prefix_rules', FakePrefixRules::class); // blocks nothing
+    config()->set('sms.providers.eskiz.prefix_rules', BlockEverythingPrefixRules::class);
+
+    Http::fake();
+
+    $message = app(DriverFactory::class)->make('eskiz')->send('+998901234567', 'Salom');
+
+    expect($message->successful)->toBeFalse();
+
+    Http::assertNothingSent();
+});
+
+it('normalizes dynamic prefixes before matching', function () {
+    FakePrefixRules::$rules = ['eskiz' => ['blocked' => ['+998 97']]];
+    config()->set('sms.prefix_rules', FakePrefixRules::class);
+
+    Http::fake();
+
+    $message = app(DriverFactory::class)->make('eskiz')->send('998-97-123-45-67', 'Salom');
+
+    expect($message->successful)->toBeFalse();
+
+    Http::assertNothingSent();
+});
+
+it('resolves dynamic rules once per bulk send', function () {
+    config()->set('sms.prefix_rules', FakePrefixRules::class);
+
+    Http::fake(['send.smsxabar.uz/broker-api/send' => Http::response()]);
+
+    app(DriverFactory::class)->make('playmobile')->sendMany(OutboundMessage::sameText(
+        ['+998901111111', '+998902222222', '+998903333333'],
+        'Salom',
+    ));
+
+    expect(FakePrefixRules::$calls)->toBe(1);
+});
+
+it('fails open to the static lists and warns when the rules class throws', function () {
+    FakePrefixRules::$throws = new RuntimeException('db down');
+    config()->set('sms.prefix_rules', FakePrefixRules::class);
+    config()->set('sms.providers.eskiz.prefixes', ['blocked' => ['99897']]);
+
+    $warnings = [];
+    $channel = Mockery::mock(LoggerInterface::class);
+    $channel->shouldReceive('warning')->andReturnUsing(function (string $message) use (&$warnings): void {
+        $warnings[] = $message;
+    });
+
+    Log::partialMock()->shouldReceive('channel')->with(null)->andReturn($channel);
+
+    Http::fake([
+        'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
+        'notify.eskiz.uz/api/message/sms/send' => Http::response(['id' => 1, 'status' => 'waiting']),
+    ]);
+
+    $driver = app(DriverFactory::class)->make('eskiz');
+
+    // Static list still enforced; the dynamic failure must not take sends down.
+    expect($driver->send('+998971234567', 'Salom')->successful)->toBeFalse()
+        ->and($driver->send('+998901234567', 'Salom')->successful)->toBeTrue()
+        ->and($warnings)->not->toBeEmpty()
+        ->and($warnings[0])->toContain('db down');
+});
+
+it('suppresses the failure warning when sms.silent is on', function () {
+    config()->set('sms.silent', true);
+    FakePrefixRules::$throws = new RuntimeException('db down');
+    config()->set('sms.prefix_rules', FakePrefixRules::class);
+
+    $warnings = [];
+    $channel = Mockery::mock(LoggerInterface::class);
+    $channel->shouldReceive('warning')->andReturnUsing(function (string $message) use (&$warnings): void {
+        $warnings[] = $message;
+    });
+
+    Log::partialMock()->shouldReceive('channel')->with(null)->andReturn($channel);
+
+    Http::fake([
+        'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
+        'notify.eskiz.uz/api/message/sms/send' => Http::response(['id' => 1, 'status' => 'waiting']),
+    ]);
+
+    expect(app(DriverFactory::class)->make('eskiz')->send('+998901234567', 'Salom')->successful)->toBeTrue()
+        ->and($warnings)->toBeEmpty();
+});
+
+it('warns and ignores a prefix_rules class that does not implement the contract', function () {
+    config()->set('sms.prefix_rules', stdClass::class);
+
+    $warnings = [];
+    $channel = Mockery::mock(LoggerInterface::class);
+    $channel->shouldReceive('warning')->andReturnUsing(function (string $message) use (&$warnings): void {
+        $warnings[] = $message;
+    });
+
+    Log::partialMock()->shouldReceive('channel')->with(null)->andReturn($channel);
+
+    Http::fake([
+        'notify.eskiz.uz/api/auth/login' => Http::response(['data' => ['token' => 'jwt-1']]),
+        'notify.eskiz.uz/api/message/sms/send' => Http::response(['id' => 1, 'status' => 'waiting']),
+    ]);
+
+    expect(app(DriverFactory::class)->make('eskiz')->send('+998901234567', 'Salom')->successful)->toBeTrue()
+        ->and($warnings)->not->toBeEmpty();
 });

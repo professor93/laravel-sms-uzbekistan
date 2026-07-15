@@ -72,6 +72,9 @@ ESKIZ_EMAIL=account@example.com
 ESKIZ_PASSWORD=secret
 ESKIZ_FROM=4546
 ESKIZ_TOKEN_TTL=2592000          # seconds; Eskiz JWTs live ~30 days
+ESKIZ_CALLBACK_ENABLED=false     # set true to send callback_url with every message
+ESKIZ_CALLBACK_URL=              # explicit callback URL (empty = the package webhook URL)
+ESKIZ_WEBHOOK_SECRET=            # random string; token check for incoming Eskiz callbacks
 ESKIZ_ALLOWED_PREFIXES=          # comma-separated, e.g. 99890,99891 (empty = all numbers)
 ESKIZ_BLOCKED_PREFIXES=          # comma-separated; wins over the allowed list
 
@@ -140,6 +143,18 @@ A `driver` value can be a built-in name (`eskiz`, `playmobile`, `textup`, `sayqa
 ```php
 'providers' => [
     'inhouse' => ['driver' => \App\Sms\InHouseDriver::class, /* ... */],
+],
+```
+
+To give a custom class a short name (or replace a built-in implementation), register it in the top-level `drivers` map — it is merged over the built-ins, so the same alias wins:
+
+```php
+'drivers' => [
+    'inhouse' => \App\Sms\InHouseDriver::class,  // new alias
+    'eskiz' => \App\Sms\PatchedEskizDriver::class, // overrides the built-in
+],
+'providers' => [
+    'inhouse' => ['driver' => 'inhouse', /* ... */],
 ],
 ```
 
@@ -456,6 +471,48 @@ $results[1]->successful;   // false
 $results[1]->errorMessage; // "Phone [+998971111111] matches blocked prefix [99897]. ..."
 ```
 
+### Dynamic rules (database, admin panel, ...)
+
+When the lists must change at runtime — an admin panel, a `blocked_numbers` table, an external service — point `prefix_rules` at a class implementing `Uzbek\Sms\Contracts\PrefixRules`:
+
+```php
+use Uzbek\Sms\Contracts\PrefixRules;
+
+final class DatabasePrefixRules implements PrefixRules
+{
+    public function allowlist(string $provider): array
+    {
+        return $this->load($provider)['allowed'];
+    }
+
+    public function blocklist(string $provider): array
+    {
+        return $this->load($provider)['blocked'];
+    }
+
+    private function load(string $provider): array
+    {
+        return cache()->remember("sms-prefixes:{$provider}", 60, fn (): array => [
+            'allowed' => SmsPrefix::query()->where('provider', $provider)->where('type', 'allowed')->pluck('prefix')->all(),
+            'blocked' => SmsPrefix::query()->where('provider', $provider)->where('type', 'blocked')->pluck('prefix')->all(),
+        ]);
+    }
+}
+```
+
+```php
+// config/sms.php — global, or per provider (per-provider wins):
+'prefix_rules' => \App\Sms\DatabasePrefixRules::class,
+'providers' => [
+    'eskiz' => [
+        // ...
+        'prefix_rules' => \App\Sms\EskizPrefixRules::class,
+    ],
+],
+```
+
+The class is resolved from the container **once per send call** (single or bulk), so rule changes apply immediately without rebuilding anything — cache inside the class if the lookup is expensive. Neither list is required: return `[]` from `allowlist()` for no allow-restriction, and the `blocklist()` always wins. The lists are merged with the static `prefixes` config and normalized the same way. If the class throws or does not implement the contract, the package logs a warning (silenced by `SMS_SILENT`) and falls back to the static lists — sending never goes down with your database. Keep legally-required blocks in the static config for exactly that reason.
+
 ## Fake mode
 
 For local development and staging: sends look completely real — same `SentMessage`, same `SmsSent` events, same database/debug logging, same fallback behavior — but no HTTP call ever leaves the machine (not even auth). Controlled by env only:
@@ -582,6 +639,8 @@ Timing caveat: the event fires inside the driver, before the pending layer stamp
 
 Webhook routes register at `POST /{SMS_WEBHOOK_PATH}/{provider}` when `SMS_WEBHOOK_ENABLED=true` (off by default — send-only apps expose no endpoint). The route carries only the middleware from `config('sms.webhook.middleware')` — it deliberately sits outside the `web` group and CSRF, because providers POST server-to-server.
 
+Every verified webhook dispatches `DeliveryStatusUpdated` per parsed report (updating `sms_logs` when the database log is on). What happens next is configurable per provider with `webhook_handler` — see [Custom handlers](#custom-handlers) below. Without a handler, the webhook is written to the log (`SMS_LOG_CHANNEL`) so no callback ever disappears silently.
+
 ### PlayMobile
 
 PlayMobile does not sign callbacks. The shared-secret token is **optional** — leave `PLAYMOBILE_WEBHOOK_SECRET` empty and callbacks are accepted without a token; set it and the token becomes mandatory and must match. Register this URL in the PlayMobile cabinet:
@@ -603,9 +662,44 @@ Setting a secret is recommended, since the endpoint sits outside `web`/CSRF. Opt
 
 Wrong token (when a secret is set) or a disallowed IP → 403. Valid callbacks update `sms_logs` (when the database log is on) and dispatch `DeliveryStatusUpdated` either way.
 
-### Eskiz, TextUp, Sayqal
+### Eskiz
 
-No webhook intake in v1 — poll with `checkStatus()`. Eskiz supports a `callback_url` on send (the config key is reserved); a POST to `/sms/webhooks/eskiz` currently returns 404 by design.
+Eskiz pushes delivery reports to a `callback_url` sent with each message. Set `ESKIZ_CALLBACK_ENABLED=true` and the driver attaches one automatically: the explicit `ESKIZ_CALLBACK_URL` if set, otherwise the package webhook URL (`/sms/webhooks/eskiz`, requires `SMS_WEBHOOK_ENABLED=true`). When `ESKIZ_WEBHOOK_SECRET` is set, the auto-generated URL carries `?token=<secret>` and incoming callbacks must present it; `allowed_ips` pinning works the same as for PlayMobile. With everything off (the default), no `callback_url` is sent at all — poll with `checkStatus()` instead.
+
+### TextUp, Sayqal
+
+No webhook intake — poll with `checkStatus()`, or configure a [custom handler](#custom-handlers) to accept whatever these providers POST.
+
+### Custom handlers
+
+Set `webhook_handler` on any provider to process callbacks yourself. The class is resolved from the container and must implement `Uzbek\Sms\Contracts\WebhookHandler`:
+
+```php
+use Illuminate\Http\Request;
+use Uzbek\Sms\Contracts\Driver;
+use Uzbek\Sms\Contracts\WebhookHandler;
+use Uzbek\Sms\Data\DeliveryReport;
+
+final class EskizWebhookHandler implements WebhookHandler
+{
+    /** @param list<DeliveryReport> $reports */
+    public function handle(Request $request, Driver $driver, array $reports): void
+    {
+        // notify your own systems, enqueue jobs, ...
+    }
+}
+```
+
+```php
+'providers' => [
+    'eskiz' => [
+        // ...
+        'webhook_handler' => \App\Sms\EskizWebhookHandler::class,
+    ],
+],
+```
+
+`DeliveryStatusUpdated` events and the database log keep working alongside the handler — it is an addition, not a replacement. A handler also unlocks the endpoint for drivers that cannot parse webhooks themselves (`$reports` arrives empty and the raw `Request` is yours); in that case the driver performs no verification, so the handler owns security.
 
 ## Deployment and cache notes
 
@@ -618,7 +712,7 @@ Eskiz and TextUp tokens are cached and refreshed with a **single-flight** strate
 
 ## Adding a new driver
 
-Adding a provider touches nothing existing: extend `AbstractDriver`, implement `doSend()` + `resolveAuthenticator()` + `mapStatus()`, add capability interfaces if the provider supports them, add a config block, and register one line in the `DriverFactory` map so the short name (`'acme'`) is available everywhere. If you only need the driver in your own app, skip that last step entirely and reference the class directly in a provider's `driver` key instead — see [Custom driver](#custom-driver).
+Adding a provider touches nothing existing: extend `AbstractDriver`, implement `doSend()` + `resolveAuthenticator()` + `mapStatus()`, add capability interfaces if the provider supports them, add a config block, and register the short name (`'acme'`) in the `drivers` map of `config/sms.php` so it is available everywhere. Or skip the alias entirely and reference the class directly in a provider's `driver` key — see [Custom driver](#custom-driver).
 
 A complete worked example — a fictional provider with API-key auth and status pull:
 
@@ -713,10 +807,12 @@ Then the config block:
 ],
 ```
 
-And one line in `DriverFactory::DRIVERS`:
+And one line in the `drivers` map of `config/sms.php`:
 
 ```php
-'acme' => AcmeDriver::class,
+'drivers' => [
+    'acme' => AcmeDriver::class,
+],
 ```
 
 Everything else — events, logging, retries, prefix rules, the fluent builder, webhook routing — comes from the base class and the provider wiring for free. If the provider has a native bulk endpoint, override the protected `doSendMany()` and route results through `finalizeBulk()`; if it signs requests or logs in for a token, reuse `SignedTokenAuthenticator` or `LoginTokenAuthenticator` the same way the built-in drivers do.

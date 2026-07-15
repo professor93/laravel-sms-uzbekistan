@@ -6,6 +6,29 @@ return [
 
     'default' => env('SMS_PROVIDER', 'eskiz'),
 
+    /*
+     | Driver alias map: alias => FQCN of a class extending
+     | Uzbek\Sms\Drivers\AbstractDriver. Merged over the built-ins
+     | (eskiz, playmobile, textup, sayqal); reusing a built-in alias
+     | overrides it. A provider's `driver` key may also reference a
+     | driver class directly by FQCN, without registering an alias here.
+     |
+     | 'drivers' => ['vendor' => \App\Sms\VendorDriver::class],
+     */
+    'drivers' => [],
+
+    /*
+     | Dynamic prefix rules: FQCN implementing Uzbek\Sms\Contracts\PrefixRules,
+     | resolved from the container once per send call. Its allowlist()/
+     | blocklist() lists are merged with each provider's static `prefixes`
+     | config (blocked always wins; empty allowlist = no restriction). Set
+     | here for all providers, or per provider with a `prefix_rules` key
+     | (which takes precedence). If the source fails (e.g. the database is
+     | down) a warning is logged and only the static lists apply — keep hard
+     | legal blocks in the config, use the class for runtime-managed lists.
+     */
+    'prefix_rules' => null,
+
     'silent' => (bool) env('SMS_SILENT', false),
 
     /*
@@ -21,6 +44,14 @@ return [
         'success_rate' => env('SMS_FAKE_SUCCESS_RATE', 1.0),
     ],
 
+    /*
+     | Incoming delivery reports are posted to {path}/{provider}. Per provider,
+     | an optional `webhook_handler` (FQCN implementing
+     | Uzbek\Sms\Contracts\WebhookHandler) is called with the parsed reports;
+     | without one the webhook is written to the log. A handler also unlocks
+     | the endpoint for drivers that cannot parse webhooks themselves — the
+     | handler then owns request verification.
+     */
     'webhook' => [
         'enabled' => (bool) env('SMS_WEBHOOK_ENABLED', false),
         'path' => env('SMS_WEBHOOK_PATH', 'sms/webhooks'),
@@ -55,8 +86,22 @@ return [
             'password' => env('ESKIZ_PASSWORD'),
             'from' => env('ESKIZ_FROM', '4546'),
             'token_ttl' => (int) env('ESKIZ_TOKEN_TTL', 2592000),
-            // Reserved: Eskiz push callbacks are out of scope for v1.
+
+            // Delivery callbacks: nothing is sent while callback_enabled is
+            // false. When true, each send carries callback_url — the explicit
+            // ESKIZ_CALLBACK_URL, or (when it is null and sms.webhook is
+            // enabled) the package webhook URL, with ?token= appended when a
+            // webhook_secret is set. A null resolved URL is omitted entirely.
+            'callback_enabled' => (bool) env('ESKIZ_CALLBACK_ENABLED', false),
             'callback_url' => env('ESKIZ_CALLBACK_URL'),
+
+            // Webhook security for incoming Eskiz delivery reports; each
+            // check is enforced only when configured.
+            'webhook_secret' => env('ESKIZ_WEBHOOK_SECRET'),
+            'allowed_ips' => [],
+
+            // Optional app-side processor for incoming delivery reports:
+            // 'webhook_handler' => \App\Sms\EskizWebhookHandler::class,
             'prefixes' => [
                 'allowed' => array_filter(explode(',', (string) env('ESKIZ_ALLOWED_PREFIXES', ''))),
                 'blocked' => array_filter(explode(',', (string) env('ESKIZ_BLOCKED_PREFIXES', ''))),
