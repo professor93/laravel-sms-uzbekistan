@@ -56,8 +56,8 @@ trait HasSendOptions
     }
 
     /**
-     * At-most-once guard: the key is reserved before transport, so a retry
-     * (double click, requeued job) inside the TTL is skipped, not resent.
+     * At-most-once: key reserved before transport, so a retry inside the TTL
+     * is skipped, not resent.
      */
     public function dedupe(string $key, int $ttl = 86400): self
     {
@@ -77,8 +77,8 @@ trait HasSendOptions
     }
 
     /**
-     * With sms.templates.enforce on, every outgoing text must match a
-     * template — a mismatch throws before any transport starts.
+     * sms.templates.enforce on = every text must match a template; mismatch
+     * throws before transport.
      *
      * @param  iterable<string>  $texts
      *
@@ -100,8 +100,7 @@ trait HasSendOptions
     }
 
     /**
-     * True when this send may proceed. Fails open: an unavailable cache store
-     * must not stop messaging, losing dedupe protection is the lesser harm.
+     * True = send may proceed. Fails open: losing dedupe beats losing sends.
      */
     private function reserveDedupe(): bool
     {

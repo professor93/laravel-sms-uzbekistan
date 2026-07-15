@@ -21,9 +21,8 @@ final class OtpBroker
     public function __construct(private readonly DriverFactory $factory) {}
 
     /**
-     * The template may be a name from sms.templates.list, a translation key
-     * (localized via $locale or the app locale), or a raw string; :code and
-     * any $params placeholders are filled in.
+     * $template: templates.list name, translation key ($locale-aware), or
+     * raw string. :code and $params placeholders are filled in.
      *
      * @param  array<string, string|int|float>  $params
      */

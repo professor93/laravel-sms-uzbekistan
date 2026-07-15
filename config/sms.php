@@ -7,37 +7,28 @@ return [
     'default' => env('SMS_PROVIDER', 'eskiz'),
 
     /*
-     | Driver alias map: alias => FQCN of a class extending
-     | Uzbek\Sms\Drivers\AbstractDriver. Merged over the built-ins
-     | (eskiz, playmobile, textup, sayqal); reusing a built-in alias
-     | overrides it. A provider's `driver` key may also reference a
-     | driver class directly by FQCN, without registering an alias here.
-     |
-     | 'drivers' => ['vendor' => \App\Sms\VendorDriver::class],
+     | Extra driver aliases (alias => AbstractDriver subclass). Merged over
+     | the built-ins (eskiz, playmobile, textup, sayqal) — the same alias
+     | overrides. A provider's `driver` key also accepts an FQCN directly.
      */
     'drivers' => [],
 
     /*
-     | Dynamic prefix rules: FQCN implementing Uzbek\Sms\Contracts\PrefixRules,
-     | resolved from the container once per send call. Its allowlist()/
-     | blocklist() lists are merged with each provider's static `prefixes`
-     | config (blocked always wins; empty allowlist = no restriction). Set
-     | here for all providers, or per provider with a `prefix_rules` key
-     | (which takes precedence). If the source fails (e.g. the database is
-     | down) a warning is logged and only the static lists apply — keep hard
-     | legal blocks in the config, use the class for runtime-managed lists.
+     | Dynamic allow/block lists: FQCN implementing Contracts\PrefixRules,
+     | resolved once per send call and merged with each provider's static
+     | `prefixes` (blocked wins). A per-provider `prefix_rules` key overrides
+     | this one. Source failure = warning + static lists only, so keep hard
+     | legal blocks in the static config.
      */
     'prefix_rules' => null,
 
+    // Suppresses the package's warning logs.
     'silent' => (bool) env('SMS_SILENT', false),
 
     /*
-     | Fake mode: sends succeed (or fail, see success_rate) without any HTTP
-     | call leaving the machine — no auth, no provider traffic. Intended for
-     | local development and staging. success_rate is a probability from 0
-     | to 1: 1 (default) = every send succeeds, 0.7 = ~70% succeed, 0 = every
-     | send fails with a simulated error. A blank or invalid value falls back
-     | to 1 (a warning is logged for invalid values unless sms.silent is on).
+     | Fake mode: sends short-circuit before auth — no HTTP leaves the
+     | machine. success_rate 0..1 (1 = every send succeeds); blank or
+     | invalid falls back to 1 with a warning.
      */
     'fake' => [
         'enabled' => (bool) env('SMS_FAKE', false),
@@ -45,12 +36,11 @@ return [
     ],
 
     /*
-     | Incoming delivery reports are posted to {path}/{provider}. Per provider,
-     | an optional `webhook_handler` (FQCN implementing
-     | Uzbek\Sms\Contracts\WebhookHandler) is called with the parsed reports;
-     | without one the webhook is written to the log. A handler also unlocks
-     | the endpoint for drivers that cannot parse webhooks themselves — the
-     | handler then owns request verification.
+     | Delivery reports arrive at POST {path}/{provider}. An optional
+     | per-provider `webhook_handler` (Contracts\WebhookHandler) receives the
+     | parsed reports and also unlocks the endpoint for drivers that cannot
+     | parse webhooks — the handler owns security then. Without a handler
+     | the webhook is written to the log.
      */
     'webhook' => [
         'enabled' => (bool) env('SMS_WEBHOOK_ENABLED', false),
@@ -72,24 +62,20 @@ return [
     ],
 
     /*
-     | Runtime config overrides: FQCN implementing
-     | Uzbek\Sms\Contracts\ProviderConfigOverrides. The file config below
-     | stays the base; the source returns only the keys to change per
-     | provider (rotated credentials, enabled toggles, ...). The shipped
-     | Uzbek\Sms\Config\DatabaseProviderConfigOverrides reads the
-     | sms_provider_overrides table (publish the sms-overrides-migration
-     | tag), cached for config_overrides_ttl seconds. A failing source
-     | falls back to the file config with a warning.
+     | Runtime overrides on top of this file: FQCN implementing
+     | Contracts\ProviderConfigOverrides, returning ONLY the changed keys per
+     | provider. Shipped DB source: Config\DatabaseProviderConfigOverrides
+     | (publish the sms-overrides-migration tag), cached config_overrides_ttl
+     | seconds. Source failure = warning + file config.
      */
     'config_overrides' => null,
     'config_overrides_ttl' => 60,
 
     /*
-     | Named message templates (:placeholders become wildcards for matching).
-     | enforce=false only enables ->template('name', [...]) rendering;
-     | enforce=true additionally blocks any builder text that matches no
-     | template by throwing TemplateViolationException before transport —
-     | matches the Eskiz/TextUp moderation reality.
+     | Named templates (:x = wildcard when matching). enforce=false enables
+     | only ->template('name', [...]) rendering; enforce=true additionally
+     | throws TemplateViolationException for builder text that matches no
+     | template — before any transport.
      */
     'templates' => [
         'enforce' => (bool) env('SMS_TEMPLATES_ENFORCE', false),
@@ -99,11 +85,9 @@ return [
     ],
 
     /*
-     | One-time codes via Sms::otp()->send()/verify(): hashed at rest in the
-     | cache, single-use, attempt-limited, resend-throttled. The :code
-     | placeholder in the template is replaced with the generated digits.
-     | The template may be a raw string, a name from templates.list, or a
-     | translation key (localized per app locale or the send() locale arg).
+     | Sms::otp() codes: hashed at rest in the cache, single-use,
+     | attempt-limited, resend-throttled. template = raw string, a
+     | templates.list name, or a translation key; :code is filled in.
      */
     'otp' => [
         'length' => (int) env('SMS_OTP_LENGTH', 6),
@@ -113,18 +97,26 @@ return [
         'template' => env('SMS_OTP_TEMPLATE', 'Tasdiqlash kodi: :code'),
     ],
 
+    /*
+     | Every provider block also accepts these optional keys (all off unless set):
+     |
+     | 'fallback' => 'other-provider'                    retry failed sends through another entry
+     | 'retry' => ['times' => 3, 'sleep' => 200]         transient 5xx/timeout retries
+     | 'circuit_breaker' => ['threshold' => 5, 'cooldown' => 60]
+     | 'bulk' => ['chunk' => 500, 'per_second' => 100]   split + pace sendMany()
+     | 'price_per_segment' => 115.0                      enables cost() and the log cost column
+     | 'prefix_rules' => FQCN                            per-provider dynamic prefix source
+     | 'health_check' => FQCN                            per-provider Sms::health() probe
+     | 'webhook_handler' => FQCN                         app-side webhook processor
+     | 'webhook_secret' / 'allowed_ips'                  incoming webhook guards
+     | 'http_options' => []                              raw Guzzle options (proxy, timeout, ...)
+     */
     'providers' => [
 
         'eskiz' => [
             'driver' => 'eskiz',
             'enabled' => (bool) env('ESKIZ_ENABLED', true),
-
-            // Default fallback provider: when a send fails, it is retried through
-            // this provider. The value must be another key in this `providers` array.
-            // Leave empty (null) to disable. Override per-message with
-            // ->useFallback('other') or disable with ->withoutFallback().
             'fallback' => env('ESKIZ_FALLBACK'),
-
             'base_url' => env('ESKIZ_BASE_URL', 'https://notify.eskiz.uz/api'),
             'email' => env('ESKIZ_EMAIL'),
             'password' => env('ESKIZ_PASSWORD'),
@@ -134,21 +126,16 @@ return [
             // Fires LowBalanceDetected when balance() drops below this (UZS).
             'low_balance_threshold' => env('ESKIZ_LOW_BALANCE_THRESHOLD'),
 
-            // Delivery callbacks: nothing is sent while callback_enabled is
-            // false. When true, each send carries callback_url — the explicit
-            // ESKIZ_CALLBACK_URL, or (when it is null and sms.webhook is
-            // enabled) the package webhook URL, with ?token= appended when a
-            // webhook_secret is set. A null resolved URL is omitted entirely.
+            // callback_enabled=true attaches callback_url to every send: the
+            // explicit ESKIZ_CALLBACK_URL, or the package webhook URL (with
+            // ?token= when webhook_secret is set). Null resolved = omitted.
             'callback_enabled' => (bool) env('ESKIZ_CALLBACK_ENABLED', false),
             'callback_url' => env('ESKIZ_CALLBACK_URL'),
 
-            // Webhook security for incoming Eskiz delivery reports; each
-            // check is enforced only when configured.
+            // Incoming webhook guards; each enforced only when set.
             'webhook_secret' => env('ESKIZ_WEBHOOK_SECRET'),
             'allowed_ips' => [],
 
-            // Optional app-side processor for incoming delivery reports:
-            // 'webhook_handler' => \App\Sms\EskizWebhookHandler::class,
             'prefixes' => [
                 'allowed' => array_filter(explode(',', (string) env('ESKIZ_ALLOWED_PREFIXES', ''))),
                 'blocked' => array_filter(explode(',', (string) env('ESKIZ_BLOCKED_PREFIXES', ''))),

@@ -139,9 +139,8 @@ abstract class AbstractDriver implements Driver
     }
 
     /**
-     * Opt-in bulk pacing: `bulk.chunk` splits the batch, `bulk.per_second`
-     * caps throughput (implying a chunk size when none is set). Without the
-     * config, one call to doSendMany — the old behavior.
+     * bulk.chunk splits the batch, bulk.per_second paces it (and implies a
+     * chunk size). No config = one doSendMany call, as before.
      *
      * @param  Collection<int, OutboundMessage>  $messages
      * @return Collection<int, SentMessage>
@@ -452,8 +451,8 @@ abstract class AbstractDriver implements Driver
     }
 
     /**
-     * Fires LowBalanceDetected when the amount falls below the provider's
-     * low_balance_threshold config. Drivers wrap their balance() result.
+     * Drivers wrap their balance() result: fires LowBalanceDetected below
+     * the provider's low_balance_threshold.
      */
     protected function reportBalance(Balance $balance): Balance
     {
@@ -467,9 +466,8 @@ abstract class AbstractDriver implements Driver
     }
 
     /**
-     * Delivery-callback URL for outbound payloads: null (omit) unless the
-     * provider opts in with callback_enabled; an explicit callback_url wins
-     * over the package webhook route.
+     * Null (omit) unless callback_enabled; explicit callback_url wins over
+     * the package webhook route.
      */
     protected function callbackUrl(): ?string
     {
@@ -573,11 +571,8 @@ abstract class AbstractDriver implements Driver
     }
 
     /**
-     * Merges in lists from the configured PrefixRules class (per-provider
-     * `prefix_rules` key, else the global `sms.prefix_rules`). Runs once per
-     * send call so rule changes apply without rebuilding the driver. Fails
-     * open to the static config lists — an unavailable rules source must not
-     * take messaging down, so keep hard legal blocks in the config.
+     * PrefixRules class (per-provider `prefix_rules`, else global) resolved
+     * once per send call. Fails open to the static config lists.
      */
     private function loadDynamicPrefixes(): void
     {

@@ -21,8 +21,8 @@ final class SentMessage extends Data
     }
 
     /**
-     * segments × the provider's price_per_segment config; null when no price
-     * is set. Computed on read so price changes need no reprocessing.
+     * segments × price_per_segment config; null without a price. Computed on
+     * read, so price changes need no reprocessing.
      */
     public function cost(): ?float
     {
@@ -36,9 +36,8 @@ final class SentMessage extends Data
     }
 
     /**
-     * Single write path for status changes: the DeliveryStatusUpdated event
-     * carries it to sms_logs (when database logging is on) and to any app
-     * listener — same route a webhook takes.
+     * Status changes ride DeliveryStatusUpdated — the same route a webhook
+     * takes — so sms_logs and app listeners stay in sync.
      */
     public function updateStatus(DeliveryStatus $status): self
     {
@@ -57,8 +56,8 @@ final class SentMessage extends Data
     }
 
     /**
-     * Polls the provider and syncs. No-ops without a provider message id, on
-     * drivers without ChecksDeliveryStatus, and on transport errors.
+     * Polls the provider and syncs. No-ops: no message id, driver without
+     * ChecksDeliveryStatus, transport error.
      */
     public function refreshStatus(): self
     {
